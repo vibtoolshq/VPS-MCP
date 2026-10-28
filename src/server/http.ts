@@ -205,6 +205,7 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
             if(typeof payload.clientId!=='string'||!oauth.hasClient(payload.clientId))throw Error('Unknown client');
             await audit.recordDurable('oauth.refresh','success',session.username,'client-revoked');
             oauth.revokeClient(payload.clientId);
+            approvals.discardClient(payload.clientId);
             policy.revokeClientPolicy(payload.clientId);
           }else return text(res,404,'Not found');
           return json(res,200,{ok:true,policy:policy.snapshot()});
@@ -220,6 +221,15 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
           return json(res,400,{error:'invalid_approval'});
         if(!config.writesEnabled)return json(res,403,{error:'write_operations_disabled'});
         try {
+          if(payload.approve){
+            const pending=approvals.pendingDetails(payload.id);
+            if(!pending || !oauth.hasClient(pending.clientId) ||
+              !policy.clientWriteAllowed(pending.clientId) ||
+              !policy.toolAllowed('operation_execute',pending.clientId) ||
+              !policy.actionAllowed(pending.action)) {
+              return json(res,409,{error:'approval_blocked_by_current_policy'});
+            }
+          }
           const result=approvals.decide(payload.id,payload.approve,session.username);
           return json(res,200,result);
         }catch {
@@ -288,6 +298,10 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
           return json(res,411,{error:'content_length_required'});
         if(!Number.isSafeInteger(size)||size<0||size>64*1024)
           return json(res,413,{error:'request_too_large'});
+        if(!policy.clientReadAllowed(identity!.clientId)){
+          audit.record('mcp.reject','denied',identity!.clientId,'client-read-disabled');
+          return json(res,403,{error:'client_read_access_disabled'});
+        }
         audit.record('mcp.request','success',identity!.clientId);
         return await requestContext.run(identity!,()=>nodeHandler(req,res));
       }

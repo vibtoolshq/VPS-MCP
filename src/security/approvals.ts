@@ -45,7 +45,16 @@ export class ApprovalQueue {
   pending(){
     this.cleanup();
     return [...this.items.values()].filter(v=>v.status==='pending')
-      .map(v=>({id:v.id,summary:summary(v.operation),clientId:v.clientId.slice(0,38),expires:v.expires}));
+      .map(v=>({id:v.id,summary:summary(v.operation),clientId:v.clientId.slice(0,38),action:v.operation.type,expires:v.expires}));
+  }
+  pendingDetails(id:string){
+    this.cleanup();
+    const item=this.items.get(id);
+    if(!item || item.status!=='pending')return null;
+    return {clientId:item.clientId,action:item.operation.type};
+  }
+  discardClient(clientId:string){
+    for(const [key,item] of this.items)if(item.clientId===clientId && !item.busy)this.items.delete(key);
   }
   decide(approvalId:string,approve:boolean,admin:string){
     this.cleanup();

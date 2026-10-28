@@ -92,3 +92,5 @@ button:disabled{opacity:.55}
 @media(max-width:430px){.section-intro{align-items:flex-start;flex-direction:column}.client-head{align-items:flex-start;flex-direction:column}.permission-item{gap:9px}.permission-state{min-width:60px;padding:6px 9px}}
 
 .client-scopes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:8px 0}.client-scopes .permission-item{border:1px solid #2b3b51;padding:10px;border-radius:9px}@media(max-width:600px){.client-scopes{grid-template-columns:1fr}}
+
+.permission-item .permission-state:disabled{cursor:not-allowed}.client-tools[open] summary{margin-bottom:8px}.permission-description .sub{overflow-wrap:anywhere}

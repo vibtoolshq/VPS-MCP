@@ -65,10 +65,13 @@ export class OAuthService {
     }
   }
   private persist(){
+    this.persistSnapshot([...this.clients.values()],[...this.refresh.entries()]);
+  }
+  private persistSnapshot(clients:Client[],refresh:[string,Refresh][]){
     const file=this.config.MCP_STATE_FILE;
     mkdirSync(path.dirname(file),{recursive:true,mode:0o700});
     const temporary=file+'.'+process.pid+'.tmp';
-    const content=JSON.stringify({version:1,clients:[...this.clients.values()],refresh:[...this.refresh.entries()]});
+    const content=JSON.stringify({version:1,clients,refresh});
     writeFileSync(temporary,content,{mode:0o600,flag:'w'});
     renameSync(temporary,file);
   }
@@ -223,9 +226,11 @@ export class OAuthService {
     const id=fields.get('client_id')||'';
     if(!this.clients.has(id)) throw new OAuthError('invalid_client',401);
     const secret=digest(fields.get('token')||'');
-    if(this.access.get(secret)?.clientId===id) this.access.delete(secret);
-    if(this.refresh.get(secret)?.clientId===id) this.refresh.delete(secret);
-    this.persist();
+    if(this.refresh.get(secret)?.clientId===id) {
+      this.persistSnapshot([...this.clients.values()],[...this.refresh.entries()].filter(([key])=>key!==secret));
+      this.refresh.delete(secret);
+    }
+    if(this.access.get(secret)?.clientId===id)this.access.delete(secret);
   }
   hasClient(id:string){return this.clients.has(id);}
   listClients(){
@@ -237,12 +242,17 @@ export class OAuthService {
   }
   revokeClient(id:string){
     if(!this.clients.has(id))throw new OAuthError('unknown_client',404);
+    // Persist the revoked registration and refresh credentials BEFORE updating
+    // active in-memory access; disk failures must never silently resurrect a revoke.
+    this.persistSnapshot(
+      [...this.clients.values()].filter(client=>client.id!==id),
+      [...this.refresh.entries()].filter(([,value])=>value.clientId!==id)
+    );
     this.clients.delete(id);
     for(const [k,v] of this.access)if(v.clientId===id)this.access.delete(k);
     for(const [k,v] of this.refresh)if(v.clientId===id)this.refresh.delete(k);
     for(const [k,v] of this.pending)if(v.clientId===id)this.pending.delete(k);
     for(const [k,v] of this.codes)if(v.clientId===id)this.codes.delete(k);
-    this.persist();
   }
   stats() {this.cleanup(); return {clients:this.clients.size, activeTokens:this.access.size};}
 }

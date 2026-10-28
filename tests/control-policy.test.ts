@@ -89,3 +89,34 @@ test('per-client read/write scopes restrict all tools and survive restart',async
  assert.equal(store.toolAllowed('operation_request',client),true);
  assert.throws(()=>store.setClientScope(client,'vps:admin',true),/Unknown OAuth scope/);
 });
+
+test('policy snapshot distinguishes configured preferences from effective rights',async()=>{
+ const {cfg}=await fixture();
+ const store=new PolicyStore(cfg);
+ const id='vpsmcp_'+'d'.repeat(43);
+ store.setTool('system_status',false);
+ const tool=store.clientAllowedTools(id).find(v=>v.name==='system_status');
+ assert.equal(tool?.configured,true);
+ assert.equal(tool?.enabled,true); // client preference preserved for later
+ assert.equal(tool?.globalEnabled,false);
+ assert.equal(tool?.effective,false);
+ store.setTool('system_status',true);
+ store.setClientScope(id,'vps:read',false);
+ assert.equal(store.clientAllowedTools(id).find(v=>v.name==='system_status')?.effective,false);
+ store.setClientScope(id,'vps:read',true);
+ store.setClientScope(id,'vps:write',false);
+ assert.equal(store.clientScopes(id).writePolicyEnabled,false);
+ assert.equal(store.clientAllowedTools(id).find(v=>v.name==='operation_request')?.effective,false);
+ store.setWritePaused(true);
+ assert.equal(store.snapshot().writeGatePaused,true);
+ assert.equal(store.snapshot().writeEffective,false);
+ assert.equal(store.snapshot().actions.find(v=>v.name==='file.create')?.enabled,true);
+ assert.equal(store.snapshot().actions.find(v=>v.name==='file.create')?.effective,false);
+});
+test('client policy capacity fails closed',async()=>{
+ const {cfg}=await fixture();
+ const store=new PolicyStore(cfg);
+ for(let n=0;n<32;n++)store.setClientScope('vpsmcp_'+n.toString(36).padStart(43,'x'),'vps:read',false);
+ assert.throws(()=>store.setClientScope('vpsmcp_'+'z'.repeat(43),'vps:read',false),/capacity/);
+ assert.equal(new PolicyStore(cfg).clientScopes('vpsmcp_'+'z'.repeat(43)).read,true);
+});

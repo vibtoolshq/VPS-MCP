@@ -35,10 +35,12 @@ export class PolicyStore {
     this.data=next;
   }
   configuredTool(name:string){return this.config.allowedTools.includes(name);}
+  clientReadAllowed(id:string){return !this.data.clientReadDisabled.includes(id);}
+  clientWriteAllowed(id:string){return this.clientReadAllowed(id) && !this.data.clientWriteDisabled.includes(id);}
   toolAllowed(name:string,clientId?:string){
     return this.configuredTool(name)
-      && (!clientId || !this.data.clientReadDisabled.includes(clientId))
-      && (!clientId || !['operation_request','operation_execute'].includes(name)||!this.data.clientWriteDisabled.includes(clientId))
+      && (!clientId || this.clientReadAllowed(clientId))
+      && (!clientId || !['operation_request','operation_execute'].includes(name)||this.clientWriteAllowed(clientId))
       &&!this.data.disabledTools.includes(name as typeof VALID_TOOLS[number])
       && (!clientId || !(this.data.clientDisabledTools[clientId]||[]).includes(name as typeof VALID_TOOLS[number]))
       && (!['operation_request','operation_execute'].includes(name)||this.writesAllowed());
@@ -57,9 +59,16 @@ export class PolicyStore {
   actionAllowed(action:Action){return this.writesAllowed()&&this.capabilityFor(action)&&!this.data.disabledActions.includes(action);}
   snapshot(){
     return {
-      writeConfigured:this.config.writesEnabled,writePaused:!this.writesAllowed(),writeGatePaused:this.data.writePaused,
-      tools:VALID_TOOLS.map(name=>({name,enabled:this.configuredTool(name)&&!this.data.disabledTools.includes(name),configured:this.configuredTool(name)})),
-      actions:ACTIONS.map(name=>({name,configured:this.capabilityFor(name),enabled:this.capabilityFor(name)&&!this.data.disabledActions.includes(name)}))
+      writeConfigured:this.config.writesEnabled,writePaused:!this.writesAllowed(),writeGatePaused:this.data.writePaused,writeEffective:this.writesAllowed(),
+      tools:VALID_TOOLS.map(name=>({
+        name,enabled:this.configuredTool(name)&&!this.data.disabledTools.includes(name),
+        configured:this.configuredTool(name),effective:this.toolAllowed(name)
+      })),
+      actions:ACTIONS.map(name=>({
+        name,configured:this.capabilityFor(name),
+        enabled:this.capabilityFor(name)&&!this.data.disabledActions.includes(name),
+        effective:this.actionAllowed(name)
+      }))
     };
   }
   setTool(name:string,enabled:boolean){
@@ -82,15 +91,20 @@ export class PolicyStore {
   clientAllowedTools(id:string){
     return VALID_TOOLS.map(name=>({
       name,
-      enabled:this.configuredTool(name)&&!this.data.disabledTools.includes(name)&&
-        !(this.data.clientDisabledTools[id]||[]).includes(name),
-      globalEnabled:this.configuredTool(name)&&!this.data.disabledTools.includes(name)
+      // "enabled" is the client's saved preference, not the effective permission.
+      // Global and OAuth scope restrictions are always applied separately.
+      enabled:!(this.data.clientDisabledTools[id]||[]).includes(name),
+      configured:this.configuredTool(name),
+      globalEnabled:this.configuredTool(name)&&!this.data.disabledTools.includes(name),
+      effective:this.toolAllowed(name,id)
     }));
   }
   clientScopes(id:string){
     return {
-      read:!this.data.clientReadDisabled.includes(id),
-      write:this.config.writesEnabled && !this.data.clientReadDisabled.includes(id) && !this.data.clientWriteDisabled.includes(id)
+      read:this.clientReadAllowed(id),
+      write:this.config.writesEnabled && this.clientWriteAllowed(id),
+      readPolicyEnabled:!this.data.clientReadDisabled.includes(id),
+      writePolicyEnabled:!this.data.clientWriteDisabled.includes(id)
     };
   }
   setClientScope(id:string,scope:string,enabled:boolean){
@@ -99,6 +113,7 @@ export class PolicyStore {
     if(scope==='vps:write'&&!this.config.writesEnabled)throw Error('Write scope disabled in server');
     const key=scope==='vps:read'?'clientReadDisabled':'clientWriteDisabled';
     const current=new Set(this.data[key]);
+    if(!enabled && !current.has(id) && current.size>=32)throw Error('Client policy capacity reached');
     if(enabled)current.delete(id);else current.add(id);
     this.persist({...this.data,[key]:[...current]});
   }
@@ -110,6 +125,7 @@ export class PolicyStore {
     else disabled.add(name as typeof VALID_TOOLS[number]);
     const clientDisabledTools={...this.data.clientDisabledTools};
     if(disabled.size)clientDisabledTools[id]=[...disabled];else delete clientDisabledTools[id];
+    if(Object.keys(clientDisabledTools).length>32)throw Error('Client policy capacity reached');
     this.persist({...this.data,clientDisabledTools});
   }
   revokeClientPolicy(id:string){

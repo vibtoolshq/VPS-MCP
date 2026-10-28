@@ -150,6 +150,19 @@ test('MCP write flow needs OAuth vps:write + panel CSRF approval + single-use br
       const bad=await fetch(base+'/api/approval',{method:'POST',headers:{cookie,'content-type':'application/json'},
         body:JSON.stringify({id:approvalId,approve:true})});
       assert.equal(bad.status,403);
+      // An admin must re-enable a globally disabled action before approving it.
+      const pauseAction=await fetch(base+'/api/control/action',{method:'POST',
+        headers:{cookie,'x-csrf-token':csrf,'content-type':'application/json'},
+        body:JSON.stringify({name:'file.create',enabled:false})});
+      assert.equal(pauseAction.status,200);
+      const staleApproval=await fetch(base+'/api/approval',{method:'POST',
+        headers:{cookie,'x-csrf-token':csrf,'content-type':'application/json'},
+        body:JSON.stringify({id:approvalId,approve:true})});
+      assert.equal(staleApproval.status,409);
+      const restoreAction=await fetch(base+'/api/control/action',{method:'POST',
+        headers:{cookie,'x-csrf-token':csrf,'content-type':'application/json'},
+        body:JSON.stringify({name:'file.create',enabled:true})});
+      assert.equal(restoreAction.status,200);
       const good=await fetch(base+'/api/approval',{method:'POST',headers:{cookie,'x-csrf-token':csrf,'content-type':'application/json'},
         body:JSON.stringify({id:approvalId,approve:true})});
       assert.equal(good.status,200);
@@ -206,7 +219,10 @@ test('advanced dashboard controls enforce CSRF, global and per-client permission
       assert.equal((await client.listTools()).tools.some(t=>t.name==='system_status'),true);
       const scopeOff=await api('/api/control/client-scope',{clientId:client_id,scope:'vps:read',enabled:false});
       assert.equal(scopeOff.status,200);
-      await assert.rejects(client.listTools(),/Method not found/); // No tools are advertised when scope denies all.
+      await assert.rejects(client.listTools()); // Entire MCP endpoint now denies this client.
+      const deniedHttp=await fetch(base+'/mcp',{method:'POST',headers:{authorization:'Bearer '+access_token,'content-type':'application/json'},
+        body:JSON.stringify({jsonrpc:'2.0',id:7,method:'tools/list',params:{}})});
+      assert.equal(deniedHttp.status,403);
       assert.equal((await api('/api/control/client-scope',{clientId:client_id,scope:'vps:read',enabled:true})).status,200);
       assert.equal((await client.listTools()).tools.some(t=>t.name==='system_status'),true);
       assert.equal((await api('/api/control/client-scope',{clientId:client_id,scope:'vps:write',enabled:false})).status,200);

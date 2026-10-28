@@ -83,6 +83,8 @@ function renderApprovals(items,writesEnabled){
     description.textContent=String(item.summary||'Unknown operation')+' · Client '+String(item.clientId||'unknown');
     row.append(description);
     const controls=[];
+    const selected=state.policy?.actions?.find(v=>v.name===item.action);
+    const blocked=selected && !selected.effective;
     for(const approve of [true,false]){
       const button=makeButton(approve?'Approve':'Deny',approve?'primary small':'ghost small',async()=>{
         if(state.activeAction)return;
@@ -99,6 +101,7 @@ function renderApprovals(items,writesEnabled){
           if(state.signedIn){feedback(humanError(error));await refresh();}
         }finally{state.activeAction=false;controls.forEach(b=>b.disabled=false);}
       });
+      if(approve && blocked){button.disabled=true;button.title='Operation disabled by policy';}
       controls.push(button);row.append(button);
     }
     root.append(row);
@@ -122,17 +125,19 @@ const TOOL_HELP={
   operation_request:'Request a write operation for manual approval',
   operation_execute:'Execute one approved write request'
 };
+const expandedClients=new Set();
 const ACTION_HELP={
   'file.create':'Create a new file in a restricted workspace',
   'docker.restart':'Restart only an explicitly allowlisted container',
   'deploy.sync':'Fast-forward update of trusted configured Git repository'
 };
-function settingRow(title,description,enabled,configured,onChange){
+function settingRow(title,description,enabled,configured,onChange,effective=enabled){
   const row=document.createElement('div');row.className='permission-item';
   const content=document.createElement('div');content.className='permission-description';
   const name=document.createElement('div');name.className='permission-name';name.textContent=title;
   const detail=document.createElement('p');detail.className='sub';
-  detail.textContent=configured?description:'Locked by server configuration · '+description;
+  detail.textContent=!configured?'Locked by server configuration · '+description:
+  (enabled&&!effective?'Currently blocked by another policy · '+description:description);
   content.append(name,detail);
   const button=makeButton(enabled?'On':'Off','toggle permission-state',()=>onChange(button));
   button.disabled=!configured;button.setAttribute('aria-pressed',String(enabled));
@@ -163,12 +168,14 @@ function renderAdvanced(data){
       await runAction(button,
         ()=>api('/api/control/tool',{method:'POST',headers:{'content-type':'application/json','x-csrf-token':state.csrf},
           body:JSON.stringify({name:tool.name,enabled:!tool.enabled})}),'Tool policy updated.');
-    }));
+    },tool.effective));
   }
   const configured=policy.writeConfigured===true;
-  const enabled=configured&&!policy.writePaused;
+  const enabled=configured&&!policy.writeGatePaused;
   state.writeGateEnabled=enabled;
-  put('write-gate-status',configured?(enabled?'Write capability available; every operation still requires approval.':'Write access paused or required tools disabled.'):'Write capability locked in server environment.');
+  put('write-gate-status',!configured?'Write capability locked by server environment.':
+    (policy.writeGatePaused?'Write access manually paused.':
+    (policy.writeEffective?'Write gate enabled; approval still required.':'Write gate ON, but required MCP tools are disabled.')));
   put('write-master',enabled?'Pause writes':'Allow writes');
   $('write-master').disabled=!configured;
   $('write-master').setAttribute('aria-pressed',String(enabled));
@@ -178,7 +185,7 @@ function renderAdvanced(data){
       await runAction(button,
         ()=>api('/api/control/action',{method:'POST',headers:{'content-type':'application/json','x-csrf-token':state.csrf},
           body:JSON.stringify({name:action.name,enabled:!action.enabled})}),'Operation policy updated.');
-    }));
+    },action.effective));
   }
   put('client-total',clients.length+' client'+(clients.length===1?'':'s'));
   if(!clients.length){
@@ -204,9 +211,9 @@ function renderAdvanced(data){
     detail.textContent=asArray(client.redirectUris).join(', ')+' · '+(client.accessTokens||0)+' active access token(s)';
     record.append(detail);
     const scopes=document.createElement('div');scopes.className='client-scopes';
-    for(const [scope,enabled,configured] of [
-      ['vps:read',client.scopes?.read!==false,true],
-      ['vps:write',client.scopes?.write===true,policy.writeConfigured===true]
+    for(const [scope,enabled,configured,effective] of [
+      ['vps:read',client.scopes?.readPolicyEnabled!==false,true,client.scopes?.read!==false],
+      ['vps:write',client.scopes?.writePolicyEnabled!==false,policy.writeConfigured===true,client.scopes?.write===true]
     ]){
       scopes.append(settingRow(scope,scope==='vps:read'?'Master client read permission':'Maximum write permission; OAuth write consent and approvals still required.',
         enabled,configured,async(button)=>{
@@ -214,26 +221,31 @@ function renderAdvanced(data){
           await runAction(button,()=>api('/api/control/client-scope',{method:'POST',
             headers:{'content-type':'application/json','x-csrf-token':state.csrf},
             body:JSON.stringify({clientId:client.id,scope,enabled:!enabled})}),'Client scope policy updated.');
-        }));
+        },effective));
     }
     record.append(scopes);
     const details=document.createElement('details');details.className='client-tools';
     const summary=document.createElement('summary');summary.textContent='Configure tool permissions';
     details.append(summary);
+    details.open=expandedClients.has(client.id);
+    details.addEventListener('toggle',()=>{
+      if(details.open)expandedClients.add(client.id);else expandedClients.delete(client.id);
+    });
     for(const tool of asArray(client.tools)){
-      details.append(settingRow(tool.name,TOOL_HELP[tool.name]||'',tool.enabled,tool.globalEnabled,async(button)=>{
+      details.append(settingRow(tool.name,TOOL_HELP[tool.name]||'',tool.enabled,tool.configured===true,async(button)=>{
         if(tool.enabled&&!window.confirm('Disable '+tool.name+' for this client?'))return;
         await runAction(button,()=>api('/api/control/client-tool',{method:'POST',
           headers:{'content-type':'application/json','x-csrf-token':state.csrf},
           body:JSON.stringify({clientId:client.id,name:tool.name,enabled:!tool.enabled})}),
           'Client permissions updated.');
-      }));
+      },tool.effective));
     }
     record.append(details);clientsRoot.append(record);
   }
 }
 
 function render(data){
+  state.policy=data.policy||null;
   state.mcpEnabled=data.mcpEnabled===true;
   state.endpoint=typeof data.endpoint==='string'?data.endpoint:'';
   put('connection',data.publicHttps?'● Configured HTTPS':'● Loopback mode');
@@ -251,7 +263,7 @@ function render(data){
   put('mcp-toggle',state.mcpEnabled?'Disable MCP':'Enable MCP');
   $('mcp-toggle').setAttribute('aria-pressed',String(state.mcpEnabled));
   put('mcp-toggle-desc',state.mcpEnabled?'MCP requests are enabled':'MCP requests are blocked');
-  put('policy-label',data.writesEnabled?'Approval-gated writes':'Read-only');
+  put('policy-label',data.policy?.writeEffective?'Approval-gated writes':'Read-only / writes blocked');
   state.countdownEnd=Date.now()+Math.max(0,Number(data.enrollmentSeconds)||0)*1000;
   updateEnrollmentLabel();
   const toolList=$('tool-list');toolList.replaceChildren();

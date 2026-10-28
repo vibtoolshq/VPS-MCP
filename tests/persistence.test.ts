@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
-import {readFileSync,statSync,writeFileSync} from 'node:fs';
+import {readFileSync,statSync,writeFileSync,renameSync,mkdirSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {loadConfig} from '../src/shared/config.js';
@@ -33,4 +33,24 @@ test('corrupt OAuth persistence refuses to start rather than silently resetting'
   writeFileSync(file,'{"version":999,"clients":[],"refresh":[]}',{mode:0o600});
   const config=loadConfig({ADMIN_PASSWORD_HASH:hashPassword('long-test-admin-password-2026'),MCP_STATE_FILE:file});
   assert.throws(()=>new OAuthService(config),/persisted OAuth state/);
+});
+
+test('failed revocation persistence cannot silently revoke in RAM and resurrect on restart',()=>{
+  const file=join(tmpdir(),'vpsmcp-revoke-'+randomUUID()+'.json');
+  const redirect='https://chatgpt.com/connector_platform_oauth_redirect';
+  const cfg=loadConfig({ADMIN_PASSWORD_HASH:hashPassword('long-test-admin-password-2026'),
+    MCP_STATE_FILE:file,OAUTH_ALLOWED_REDIRECT_URIS:redirect});
+  const oauth=new OAuthService(cfg);
+  oauth.setEnrollment(true);
+  const client=oauth.register({redirect_uris:[redirect]});
+  const original=readFileSync(file,'utf8');
+  // An occupied directory at destination makes atomic rename fail.
+  renameSync(file,file+'.backup');
+  mkdirSync(file);
+  assert.throws(()=>oauth.revokeClient(client.client_id));
+  assert.equal(oauth.hasClient(client.client_id),true);
+  rmSync(file,{recursive:true});
+  renameSync(file+'.backup',file);
+  assert.equal(new OAuthService(cfg).hasClient(client.client_id),true);
+  assert.equal(readFileSync(file,'utf8'),original);
 });

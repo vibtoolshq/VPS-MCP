@@ -185,3 +185,24 @@ test('advanced console has scope toggles and enforces logged-in CSRF settings AP
   assert.ok(scopeCall);
   assert.match(String(scopeCall.options.body),/vps:read/);
 });
+
+test('advanced UI distinguishes saved switch preferences and effective access',async()=>{
+ const h=makeHarness();
+ h.responses.set('/api/session',{status:200,body:{csrf:'saved-pref-csrf'}});
+ const modified={...h.status,
+   policy:{...h.status.policy,writePaused:true,writeGatePaused:false,writeEffective:false,
+     tools:[{name:'system_status',enabled:true,configured:true,effective:false}],
+     actions:[{name:'file.create',enabled:true,configured:true,effective:false}]},
+   clients:[{id:'vpsmcp_'+'x'.repeat(43),name:'Blocked account',redirectUris:[],accessTokens:1,
+     scopes:{read:false,write:false,readPolicyEnabled:false,writePolicyEnabled:true},
+     tools:[{name:'system_status',enabled:true,configured:true,globalEnabled:true,effective:false}]}]
+ };
+ h.responses.set('/api/status',{status:200,body:modified});
+ vm.runInContext(js,h.context);
+ await h.flush();
+ assert.equal(h.elements.get('write-master')!.textContent,'Pause writes'); // manual gate is ON, downstream policy blocks
+ assert.match(h.elements.get('write-gate-status')!.textContent,/required MCP tools are disabled/);
+ const row=h.elements.get('control-permissions')!.childNodes[0]!;
+ assert.equal(row.childNodes[1]!.textContent,'On'); // selected preference
+ assert.match(row.childNodes[0]!.childNodes[1]!.textContent,/Currently blocked/);
+});
