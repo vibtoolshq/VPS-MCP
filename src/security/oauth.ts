@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { existsSync, readFileSync, mkdirSync, writeFileSync, renameSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync, writeFileSync, renameSync, lstatSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import type { IncomingMessage } from 'node:http';
 import type { AppConfig } from '../shared/config.js';
@@ -42,7 +42,7 @@ export class OAuthService {
   constructor(private config:AppConfig) {
     const file=config.MCP_STATE_FILE;
     if(!existsSync(file)) return;
-    const stateStat=statSync(file);
+    const stateStat=lstatSync(file);
     if(!stateStat.isFile() || (stateStat.mode & 0o077)!==0)
       throw new Error('OAuth state file permissions are insecure');
     const stored=JSON.parse(readFileSync(file,'utf8')) as {
@@ -70,10 +70,14 @@ export class OAuthService {
   private persistSnapshot(clients:Client[],refresh:[string,Refresh][]){
     const file=this.config.MCP_STATE_FILE;
     mkdirSync(path.dirname(file),{recursive:true,mode:0o700});
-    const temporary=file+'.'+process.pid+'.tmp';
+    const temporary=file+'.'+process.pid+'.'+randomBytes(8).toString('hex')+'.tmp';
     const content=JSON.stringify({version:1,clients,refresh});
-    writeFileSync(temporary,content,{mode:0o600,flag:'w'});
-    renameSync(temporary,file);
+    try {
+      writeFileSync(temporary,content,{mode:0o600,flag:'wx'});
+      renameSync(temporary,file);
+    } finally {
+      if(existsSync(temporary))unlinkSync(temporary);
+    }
   }
 
   private scopes(){return this.config.writesEnabled?[READ_SCOPE,WRITE_SCOPE]:[READ_SCOPE];}
@@ -120,8 +124,10 @@ export class OAuthService {
     if(data.response_types && (!Array.isArray(data.response_types) || data.response_types.some(v=>v!=='code'))) throw new OAuthError('invalid_client_metadata');
     const id='vpsmcp_'+random();
     const name=typeof data.client_name==='string' ? data.client_name.slice(0,60) : 'MCP client';
-    this.clients.set(id,{id,redirects,name});
-    this.persist();
+    const client={id,redirects,name};
+    // Commit new registration before making it visible in memory.
+    this.persistSnapshot([...this.clients.values(),client],[...this.refresh.entries()]);
+    this.clients.set(id,client);
     this.registrationCount++;
     return {
       client_id:id,
@@ -194,8 +200,13 @@ export class OAuthService {
     if(grant==='refresh_token') {
       const token=fields.get('refresh_token')||'';
       const entry=this.refresh.get(digest(token));
-      this.refresh.delete(digest(token)); // rotating refresh tokens
-      if(entry) this.persist(); // Reuse or mismatch cannot resurrect after a restart.
+      if(entry){
+        // Consume durably before acknowledging refresh. If disk persistence fails,
+        // do not mutate the in-memory token or issue a new pair.
+        this.persistSnapshot([...this.clients.values()],
+          [...this.refresh.entries()].filter(([hash])=>hash!==digest(token)));
+        this.refresh.delete(digest(token));
+      }
       if(!entry || entry.clientId!==clientId || (fields.get('resource') && fields.get('resource')!==entry.resource)) {
         throw new OAuthError('invalid_grant');
       }
@@ -209,9 +220,11 @@ export class OAuthService {
       throw new OAuthError('token_capacity_reached',503);
     const access=random(), refresh=random();
     const identity:AccessIdentity={clientId,scope,resource,expires:Date.now()+60*60_000};
+    const refreshClaim={...identity,until:Date.now()+30*24*60*60_000};
+    this.persistSnapshot([...this.clients.values()],
+      [...this.refresh.entries(),[digest(refresh),refreshClaim]]);
     this.access.set(digest(access),identity);
-    this.refresh.set(digest(refresh),{...identity,until:Date.now()+30*24*60*60_000});
-    this.persist();
+    this.refresh.set(digest(refresh),refreshClaim);
     return {access_token:access,token_type:'Bearer',expires_in:3600,refresh_token:refresh,scope};
   }
   verify(req:IncomingMessage):AccessIdentity|null {

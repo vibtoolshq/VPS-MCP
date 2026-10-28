@@ -1,4 +1,5 @@
-import {existsSync,lstatSync,readFileSync,mkdirSync,writeFileSync,renameSync} from 'node:fs';
+import {existsSync,lstatSync,readFileSync,mkdirSync,writeFileSync,renameSync,unlinkSync} from 'node:fs';
+import {randomBytes} from 'node:crypto';
 import path from 'node:path';
 import * as z from 'zod/v4';
 import type {AppConfig} from '../shared/config.js';
@@ -29,10 +30,14 @@ export class PolicyStore {
   private persist(next:Stored){
     const file=this.config.MCP_POLICY_FILE;
     mkdirSync(path.dirname(file),{recursive:true,mode:0o700});
-    const temp=file+'.'+process.pid+'.tmp';
-    writeFileSync(temp,JSON.stringify(next),{mode:0o600,flag:'w'});
-    renameSync(temp,file);
-    this.data=next;
+    const temp=file+'.'+process.pid+'.'+randomBytes(8).toString('hex')+'.tmp';
+    try {
+      writeFileSync(temp,JSON.stringify(next),{mode:0o600,flag:'wx'});
+      renameSync(temp,file);
+      this.data=next;
+    } finally {
+      if(existsSync(temp))unlinkSync(temp);
+    }
   }
   configuredTool(name:string){return this.config.allowedTools.includes(name);}
   clientReadAllowed(id:string){return !this.data.clientReadDisabled.includes(id);}

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile, chmod } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, chmod, symlink } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -79,4 +79,12 @@ test('audit storage failure prevents broker side effect despite approval',async(
     /Broker operation failed or was denied/
   );
   assert.equal(calls,0);
+});
+
+test('control file rejects symlinked state even if its destination is private',async()=>{
+  const {config,dir}=await fixture();
+  const target=path.join(dir,'other-control.json');
+  await writeFile(target,JSON.stringify({enabled:false}),{mode:0o600});
+  await symlink(target,config.MCP_CONTROL_FILE);
+  assert.throws(()=>loadMcpEnabled(config.MCP_CONTROL_FILE),/permissions are insecure/);
 });
