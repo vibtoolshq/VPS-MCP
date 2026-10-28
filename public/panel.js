@@ -14,6 +14,7 @@ async function api(url, options={}) {
 async function refresh() {
   try {
     const data=await api('/api/status');
+    put('connection',data.publicHttps?'● HTTPS secured':'● Local service');
     put('mcp-state',data.mcpEnabled?'Online':'Disabled');
     put('mcp-endpoint',data.endpoint);
     put('tools-count',data.allowedTools.length);

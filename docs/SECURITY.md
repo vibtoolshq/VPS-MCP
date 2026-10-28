@@ -12,7 +12,7 @@
 ## Known boundaries / hardening still required
 
 This is **not a claim of production-ready hardening**. Do not deploy to the public internet without further review:
-- Public OAuth register/token endpoints need additional rate and resource exhaustion controls.
+- Public OAuth register/token endpoints have basic per-IP rate limiting; stronger distributed abuse controls and resource quotas are still needed.
 - Short-lived access tokens and admin sessions are memory-only; refresh token hashes and client registrations persist in a local 0600 file.
 - Audit logs are append-only locally, without centralized tamper resistance or rotation.
 - Remote live ChatGPT callback and TLS certificate renewal are untested.

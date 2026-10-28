@@ -1,6 +1,6 @@
 # Phase 03 — Authentication, Remote Security, Permissions & Compact Panel
 
-**State:** IMPLEMENTED; final CI verification required before calling the phase closed.
+**State:** COMPLETE — Phase 03 source implemented and GitHub Actions verified on 2026-10-28 UTC (source tests only; no live VPS or ChatGPT integration).
 
 ## Delivered
 - Official MCP SDK Streamable HTTP retained; 2 read-only MCP tools unchanged.
@@ -15,7 +15,12 @@
 No shell/terminal execution, filesystem writes, Docker socket/control or deployment modifications. The existing Phase 02 read-only tools remain. No modifications to the user's VPS or ChatGPT connection were performed.
 
 ## Verification
-Inspect the most recent GitHub Actions workflow after this status report commit: it runs `npm run check` (typecheck, unit/integration tests, build). Includes a real MCP SDK client calling OAuth-secured tools and negative authorization tests.
+- GitHub Actions: **9 tests passed, 0 failed** in the last code+test run.
+- `npm run typecheck`: passed.
+- `npm run build`: passed.
+- Real MCP SDK client tested OAuth-secured `tools/list` and tool calls, as well as invalid-path/authorization cases.
+- Added persisted OAuth registration tests and 0600 state file permission checks.
+- Final documentation/Host-validation commit triggers another CI run; verify its status before deploying.
 
 ## Known limits
 - External DNS/TLS/certificate renewal, live ChatGPT connection and actual fresh VPS testing are NOT complete; these are Phase 05 release gates.

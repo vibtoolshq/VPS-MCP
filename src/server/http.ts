@@ -99,10 +99,12 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
       if((req.url||'').length>4096) return text(res,414,'URI too long');
       const host=req.headers.host||'';
       const localHost='127.0.0.1:'+String(req.socket.localPort);
-      // Do not trust proxy forwarding headers: origin is configured explicitly.
-      if(host!==new URL(config.origin).host && host!==localHost) return text(res,403,'Invalid host');
+      const peer=req.socket.remoteAddress;
+      const localPeer=peer==='127.0.0.1' || peer==='::1' || peer==='::ffff:127.0.0.1';
+      // Never trust forwarded headers; only accept the local host alias from loopback peers.
+      if(host!==new URL(config.origin).host && !(localPeer && host===localHost)) return text(res,403,'Invalid host');
       if(req.headers.origin && req.headers.origin!==config.origin &&
-        req.headers.origin!==`http://${localHost}`) return text(res,403,'Invalid origin');
+        !(localPeer && req.headers.origin===`http://${localHost}`)) return text(res,403,'Invalid origin');
 
       const url=new URL(req.url||'/',config.origin);
       const path=url.pathname;
