@@ -135,6 +135,7 @@ test('401 on protected status hides the dashboard and requires a new login',asyn
   assert.equal(h.elements.get('dashboard')!.hidden,false);
   h.responses.set('/api/status',{status:401,body:{error:'unauthorized'}});
   await h.fire('refresh');
+  await h.flush(); // refresh click handler starts an async request without returning its promise
   assert.equal(h.elements.get('dashboard')!.hidden,true);
   assert.equal(h.elements.get('login-view')!.hidden,false);
 });
