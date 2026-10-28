@@ -1,4 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { existsSync, readFileSync, mkdirSync, writeFileSync, renameSync } from 'node:fs';
+import path from 'node:path';
 import type { IncomingMessage } from 'node:http';
 import type { AppConfig } from '../shared/config.js';
 import type { AccessIdentity } from './authorization.js';
@@ -24,7 +26,34 @@ export class OAuthService {
   private codes = new Map<string,Code>();
   private access = new Map<string,AccessIdentity>();
   private refresh = new Map<string,Refresh>();
-  constructor(private config:AppConfig) {}
+  constructor(private config:AppConfig) {
+    const file=config.MCP_STATE_FILE;
+    if(!existsSync(file)) return;
+    const stored=JSON.parse(readFileSync(file,'utf8')) as {
+      version:number; clients:Client[]; refresh:[string,Refresh][]
+    };
+    if(stored.version!==1 || !Array.isArray(stored.clients) || !Array.isArray(stored.refresh)) {
+      throw new Error('Invalid persisted OAuth state; refusing to overwrite');
+    }
+    for(const client of stored.clients) {
+      if(typeof client.id==='string' && Array.isArray(client.redirects) && typeof client.name==='string') {
+        this.clients.set(client.id,client);
+      } else throw new Error('Malformed OAuth client state');
+    }
+    for(const [hash,token] of stored.refresh) {
+      if(typeof hash==='string' && token && typeof token.until==='number' && token.until>Date.now()) {
+        this.refresh.set(hash,token);
+      }
+    }
+  }
+  private persist(){
+    const file=this.config.MCP_STATE_FILE;
+    mkdirSync(path.dirname(file),{recursive:true,mode:0o700});
+    const temporary=file+'.'+process.pid+'.tmp';
+    const content=JSON.stringify({version:1,clients:[...this.clients.values()],refresh:[...this.refresh.entries()]});
+    writeFileSync(temporary,content,{mode:0o600,flag:'w'});
+    renameSync(temporary,file);
+  }
 
   get resource() {return this.config.origin+'/mcp';}
   get metadataUrl(){return this.config.origin+'/.well-known/oauth-protected-resource';}
@@ -69,6 +98,7 @@ export class OAuthService {
     const id='vpsmcp_'+random();
     const name=typeof data.client_name==='string' ? data.client_name.slice(0,60) : 'MCP client';
     this.clients.set(id,{id,redirects,name});
+    this.persist();
     return {
       client_id:id,
       client_id_issued_at:Math.floor(Date.now()/1000),
@@ -151,6 +181,7 @@ export class OAuthService {
     const identity:AccessIdentity={clientId,scope,resource,expires:Date.now()+60*60_000};
     this.access.set(digest(access),identity);
     this.refresh.set(digest(refresh),{...identity,until:Date.now()+30*24*60*60_000});
+    this.persist();
     return {access_token:access,token_type:'Bearer',expires_in:3600,refresh_token:refresh,scope};
   }
   verify(req:IncomingMessage):AccessIdentity|null {
@@ -167,6 +198,7 @@ export class OAuthService {
     const secret=digest(fields.get('token')||'');
     if(this.access.get(secret)?.clientId===id) this.access.delete(secret);
     if(this.refresh.get(secret)?.clientId===id) this.refresh.delete(secret);
+    this.persist();
   }
   stats() {this.cleanup(); return {clients:this.clients.size, activeTokens:this.access.size};}
 }

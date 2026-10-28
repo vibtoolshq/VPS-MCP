@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile } from 'node:fs/promises';
+import { appendFile, mkdir, open } from 'node:fs/promises';
 import path from 'node:path';
 
 type Outcome = 'success'|'denied'|'error';
@@ -33,8 +33,16 @@ export class AuditLog {
     // Read the file rather than trusting only in-memory state after restart.
     await this.pending;
     try {
-      const raw = await readFile(this.file,'utf8');
-      return raw.trim().split('\n').slice(-Math.min(Math.max(1,limit),100)).map(v=>JSON.parse(v) as AuditEvent).reverse();
+      const handle=await open(this.file,'r');
+      try {
+        const stat=await handle.stat();
+        const length=Math.min(stat.size,64*1024);
+        const buffer=Buffer.alloc(length);
+        await handle.read(buffer,0,length,stat.size-length);
+        const lines=buffer.toString('utf8').trim().split('\n');
+        if(stat.size>length)lines.shift();
+        return lines.filter(Boolean).slice(-Math.min(Math.max(1,limit),100)).map(v=>JSON.parse(v) as AuditEvent).reverse();
+      } finally {await handle.close();}
     } catch { return this.recent.slice(-limit).reverse(); }
   }
   async flush() {await this.pending;}

@@ -63,13 +63,28 @@ function csrf(req:IncomingMessage,res:ServerResponse,sessions:SessionManager,ses
   return true;
 }
 function consentHtml(name:string,id:string,csrfToken:string){
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Authorize VPS-MCP</title><link rel="stylesheet" href="/assets/panel.css"></head><body><div class="shell"><header class="topbar"><div class="brand"><span class="brand-icon">V</span>VPS/MCP</div><span class="tag">OAuth authorization</span></header><main><section class="login-card"><div class="eyebrow">AUTHORIZATION REQUEST</div><h1>Allow MCP access?</h1><p class="sub">The client <strong>${escape(name)}</strong> requests read-only system status and disk information. No terminal or Docker permissions will be granted.</p><form action="/oauth/approve" method="post"><input type="hidden" name="id" value="${escape(id)}"><input type="hidden" name="csrf" value="${escape(csrfToken)}"><button type="submit" name="decision" value="allow" class="primary">Approve read-only access</button><button type="submit" name="decision" value="deny" class="ghost" style="margin-top:10px;width:100%">Deny</button></form><div class="footnote">Confirm only if you initiated this connection.</div></section></main></div></body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Authorize VPS-MCP</title><link rel="stylesheet" href="/assets/panel.css"></head><body><div class="shell"><header class="topbar"><div class="brand"><span class="brand-icon">V</span>VPS/MCP</div><span class="tag">OAuth authorization</span></header><main><section class="login-card"><div class="eyebrow">AUTHORIZATION REQUEST</div><h1>Allow MCP access?</h1><p class="sub">The client <strong>${escape(name)}</strong> requests read-only system status and disk information. No terminal or Docker permissions will be granted.</p><form action="/oauth/approve" method="post"><input type="hidden" name="id" value="${escape(id)}"><input type="hidden" name="csrf" value="${escape(csrfToken)}"><button type="submit" name="decision" value="allow" class="primary">Approve read-only access</button><button type="submit" name="decision" value="deny" class="ghost">Deny</button></form><div class="footnote">Confirm only if you initiated this connection.</div></section></main></div></body></html>`;
 }
 export function createHttpServer(config:AppConfig = loadConfig()) {
   const oauth=new OAuthService(config);
   const sessions=new SessionManager(config);
   const audit=new AuditLog(config.MCP_AUDIT_FILE);
   let mcpEnabled=true;
+  const rates=new Map<string,{since:number;count:number}>();
+  function rateAllowed(req:IncomingMessage,kind:string,limit:number) {
+    const now=Date.now();
+    const key=kind+':'+(req.socket.remoteAddress||'unknown');
+    const slot=rates.get(key);
+    if(slot && now-slot.since<60_000) {
+      if(slot.count>=limit)return false;
+      slot.count++;return true;
+    }
+    if(rates.size>2048) {
+      for(const [k,v] of rates)if(now-v.since>60_000)rates.delete(k);
+      if(rates.size>2048)return false;
+    }
+    rates.set(key,{since:now,count:1});return true;
+  }
   const handler=createMcpHandler(() => createMcpServer(config.allowedTools,audit),{responseMode:'json'});
   const nodeHandler=toNodeHandler(handler);
 
@@ -144,6 +159,7 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
         return json(res,200,{ok:true,mcpEnabled});
       }
       if(path==='/oauth/register' && req.method==='POST'){
+        if(!rateAllowed(req,'oauth.register',10))return json(res,429,{error:'rate_limited'},{'retry-after':'60'});
         const registered=oauth.register(await body(req,'json'));
         audit.record('oauth.register','success','client');
         return json(res,201,registered,{'cache-control':'no-store'});
@@ -167,6 +183,7 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
         return redirect(res,location);
       }
       if(path==='/oauth/token' && req.method==='POST'){
+        if(!rateAllowed(req,'oauth.token',60))return json(res,429,{error:'rate_limited'},{'retry-after':'60'});
         const result=oauth.token(await body(req,'form') as URLSearchParams);
         audit.record('oauth.token','success','client');
         return json(res,200,result,{'pragma':'no-cache'});
@@ -178,6 +195,8 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
       }
       if(path==='/mcp') {
         if(!mcpEnabled)return json(res,503,{error:'mcp_disabled'});
+        const size=Number(req.headers['content-length']||'0');
+        if(!Number.isSafeInteger(size)||size>64*1024)return json(res,413,{error:'request_too_large'});
         if(req.method!=='POST') return text(res,405,'Method not allowed',{'allow':'POST'});
         const identity=oauth.verify(req);
         if(!canRead(identity,config)){

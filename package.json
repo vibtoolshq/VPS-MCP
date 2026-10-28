@@ -1,13 +1,13 @@
 {
   "name": "vps-mcp",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": true,
-  "description": "Portable read-only VPS MCP core (Phase 02, local-only)",
+  "description": "OAuth-backed read-only VPS MCP server with compact admin dashboard (Phase 03)",
   "type": "module",
   "scripts": {
-    "dev": "tsx src/index.ts",
+    "dev": "node --env-file-if-exists=.env --import tsx src/index.ts",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js",
+    "start": "node --env-file-if-exists=.env dist/index.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "tsx --test tests/*.test.ts",
     "check": "npm run typecheck && npm test && npm run build"

@@ -1,44 +1,45 @@
-# VPS-MCP architecture
-
-## Phase 02 implemented
+# Phase 03 Architecture
 
 ```text
-local MCP client
-    |
-127.0.0.1:<port>  (Node.js HTTP)
-    |
-Host + Origin validations
-    |
-  GET /health  |  POST /mcp
-                     |
-               createMcpHandler
-                 (stateless)
-                     |
-              fresh McpServer
-                     |
-             Zod validated tools
-              /             \
-     system_status       disk_usage
-        node:os         node:fs statfs
+MCP client (ChatGPT-compatible)        Admin browser
+           |                                 |
+    HTTPS / secure tunnel            HTTPS / local
+           |                                 |
+           +------------ Node HTTP(S) ------+
+                                 |
+                     Host / Origin checks
+                      |             |
+         OAuth bearer gate        Admin session
+                |                 login + CSRF
+           /mcp handler                 |
+                |                  Compact panel
+           vps:read scope          status / controls
+                |
+          SDK tool handlers
+           /          \
+  system_status     disk_usage
 ```
 
-The server uses the official **TypeScript SDK v2** and `@modelcontextprotocol/node` adapter, with `createMcpHandler` creating a fresh MCP server for each request. JSON response mode is used for simple read-only tools.
+## Auth boundary
 
-Modules:
-- `src/index.ts`: startup and graceful shutdown.
-- `src/server/http.ts`: routing, loopback guards, health.
-- `src/server/mcp.ts`: read-only MCP tool registration.
-- `src/tools/system.ts`: system/disk metrics.
-- `src/shared/config.ts`: schema-validated local-only configuration.
+- `/mcp`: every request must supply an unexpired opaque bearer access token scoped `vps:read` and bound to exactly the configured MCP resource audience.
+- OAuth server: discovery metadata, exact callback allowlist for Dynamic Client Registration, S256 PKCE challenge verified during single-use code exchange; rotating refresh tokens and token revocation.
+- Web dashboard: separate scrypt password verification + HttpOnly SameSite session cookie + CSRF verification for state-changing actions.
+- Deny-by-default tool registration: only configured allowlisted read-only operations are exported.
+- Audit: actions/outcomes and bounded actor names, no raw credentials/request bodies.
 
-## Phase 03 planned
+## Network options
 
-Identity-based authentication, per-tool authorization, rate limiting, structured audit logging and TLS/secure tunnel. **No proxying the current unauthenticated server onto the internet.**
+Local mode uses `127.0.0.1` and HTTP. A public listener requires native HTTPS certificate/key, host validation and origin configuration. A local-only listener can also sit behind a trusted HTTPS gateway/tunnel; configure the canonical external URL for OAuth resource and cookies.
 
-## Phase 04 planned
+Dockerfile and Compose remain disabled until Phase 05 packaging/security validation. No Docker access is granted to MCP itself in Phase 03.
 
-Filesystem and Docker operations via narrowly scoped permissions; no unrestricted shell or direct unrestricted Docker socket binding.
+## Storage
 
-## Phase 05 planned
+- `data/audit.jsonl` appends sanitized JSON events; 0600 on creation.
+- `data/oauth-state.json` persists OAuth client records and hashed refresh tokens; 0600 on creation, atomically replaced.
+- Sessions, authorization codes and short-lived access tokens remain in memory.
 
-Hardened multi-stage Docker build, Compose, CI and portable VPS installation/uninstallation instructions.
+## Threat / trust boundaries
+
+Only an authenticated administrator can approve OAuth clients; client registration alone does not authorize a tool. Exact redirect allowlist reduces callback abuse. Admin and MCP operations use different credentials and paths. Reverse proxies must not expose local endpoints without TLS and correct Host validation.

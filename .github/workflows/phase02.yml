@@ -1,4 +1,4 @@
-name: Phase 02 MCP core
+name: VPS-MCP verified core
 on:
   push:
     branches: [main]

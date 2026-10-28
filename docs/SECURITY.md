@@ -1,22 +1,30 @@
-# Security policy
+# Security design and Phase 03 restrictions
 
-## Current stage
+## Implemented
 
-**Phase 02 is a localhost-only development service and NOT remotely authenticated.** The following are present:
-- Bind restricted to `127.0.0.1` by Zod configuration
-- Local Host and Origin header guards
-- Strict tool input schemas and an explicit disk path allowlist (`/`, `/tmp`)
-- Read-only system tools using Node APIs, not shell commands
-- No Docker socket, root escalation, dynamic command execution, or file writes
+- **OAuth:** metadata discovery, PKCE-S256 single-use authorization codes, rotating refresh tokens, token audience + expiry + scope check; exact registered callback allowlist.
+- **Admin login:** password scrypt hash; no plaintext password in repository; failure throttling; HttpOnly SameSite cookie, Secure attribute when behind HTTPS; short-lived in-memory sessions; CSRF on control mutations.
+- **Transport:** localhost binding by default. Non-loopback binding requires native TLS certificate/key plus public HTTPS origin. Origin and Host checks, strict CSP, no CORS exposure and no-store security headers.
+- **Tool permissions:** allowlist permits only `system_status` and `disk_usage`, with exact disk-path validation. No Docker socket, arbitrary shell, privileged tools, write actions or file-read endpoint.
+- **Audit:** allowlisted event categories, bounded sanitized actor/detail, JSONL without credentials or request payloads.
+- **Kill switch:** authenticated CSRF-protected panel action can reject all MCP API requests while keeping admin login available.
 
-**Never** expose the current `/mcp` port to the internet, including through SSH remote forwarding, a public HTTPS reverse proxy, or a tunnel that lacks authenticated authorization.
+## Known boundaries / hardening still required
 
-## Threats & remaining work (Phase 03+)
+This is **not a claim of production-ready hardening**. Do not deploy to the public internet without further review:
+- Public OAuth register/token endpoints need additional rate and resource exhaustion controls.
+- Short-lived access tokens and admin sessions are memory-only; refresh token hashes and client registrations persist in a local 0600 file.
+- Audit logs are append-only locally, without centralized tamper resistance or rotation.
+- Remote live ChatGPT callback and TLS certificate renewal are untested.
+- Native HTTPS key permissions, reverse proxy trust and VPS firewall must be configured correctly.
+- Phase 05 will package the application as a hardened non-root container and verify remote operations.
 
-Hostile MCP requests, forged identities, malicious browser origins, request floods, prompt injection, path traversal, secrets in tool logs, privilege escalation and Docker socket abuse.
+For remote deployment, enforce modern HTTPS and firewall limits. Configure exact ChatGPT redirect URI from the target connection; do not assume all ChatGPT plans permit every MCP feature.
 
-Planned controls: enforce identity and tool permissions on every request, authenticated HTTPS/tunnel with correct identity propagation, request size/time/rate limits, security audit logs, secrets management and negative security testing. Controlled privileged operations require a separately scoped execution broker.
+## Secret rules
+
+Never commit `.env`, `data/`, private keys, password hashes from a real deployment, OAuth access/refresh tokens, session cookies or registration secrets. Rotate admin credentials and revoke affected clients if compromised. API credentials do **not** belong in URL query strings.
 
 ## Reporting
 
-Report security issues privately to the repository maintainers; do not submit secrets or exploit payloads in public issues.
+Disclose security problems privately to maintainers, not through public issues with secrets.

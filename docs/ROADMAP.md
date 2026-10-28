@@ -1,23 +1,21 @@
-# Implementation Roadmap
+# VPS-MCP Roadmap (five phases)
 
-| Phase | Deliverable | State / exit gate |
-| --- | --- | --- |
-| 01 | Structure, README and security design | Complete |
-| 02 | Official SDK v2, local Streamable HTTP, health, read-only system tools, schema validation and tests | Implemented; CI checks must pass to verify |
-| 03 | Authenticated remote connection, HTTPS/tunnel, authorization, audit, negative security tests | Not started |
-| 04 | Optional tightly constrained filesystem, Docker and deploy operations; isolated execution broker and approval controls | Not started |
-| 05 | Portable hardened image/Compose, installer, stop/uninstall, CI, real VPS verification | Not started |
+| Phase | Scope | State |
+|---|---|---|
+| 01 | Structure, README, architecture and security design | Complete |
+| 02 | Read-only MCP core, Streamable HTTP, status tools and tests | Complete |
+| 03 | OAuth authorization code/PKCE, verified admin login, allowlisted permissions, audit, HTTPS support and compact control UI | Implemented; CI must pass |
+| 04 | Controlled filesystem/Docker/deployment operations, isolated broker, approvals and negative tests | Not started |
+| 05 | Small hardened Docker image, Compose, reusable installer/stop/uninstall, fresh Ubuntu VPS and real ChatGPT connection testing | Not started |
 
-## Phase 02 acceptance
+## Phase 03 gates
 
-- `npm run check` typechecks, builds, runs tests.
-- Only `127.0.0.1` bind is permitted.
-- `/health` and MCP `tools/list` plus `tools/call` work locally.
-- Tools are read-only; invalid arbitrary paths are rejected.
-- No unauthenticated remote endpoint or privileged Docker access.
+- TypeScript check + build
+- Unit and protocol tests: credential checks, Host/Origin, OAuth discovery, callback allowlist, authorization code flow, refresh rotation, signed-in admin/CSRF, permission and kill switch
+- No host shell, file write or Docker privilege
+- Read-only state persists in disk storage where appropriate
+- Scope clearly distinguishes CI validation from real VPS/ChatGPT integration
 
-**Important:** Committing the source does not alone prove acceptance. Verify GitHub Actions and/or an independent local run before closing the phase.
+## Future operations
 
-## Release constraints
-
-No public deployment or remote ChatGPT setup until Phase 03 security controls. Don't promise zero cost or compatibility with every ChatGPT account.
+Do not reconfigure an existing VPS, public firewall, DNS or ChatGPT connection in Phase 03. Phase 04 focuses on constrained operations; Phase 05 delivers deployment and verification. 

@@ -11,6 +11,7 @@ const schema = z.object({
   OAUTH_ALLOWED_REDIRECT_URIS: z.string().default(''),
   MCP_ALLOWED_TOOLS: z.string().default('system_status,disk_usage'),
   MCP_AUDIT_FILE: z.string().default('./data/audit.jsonl'),
+  MCP_STATE_FILE: z.string().default('./data/oauth-state.json'),
   MCP_LOG_LEVEL: z.enum(['debug','info','warn','error']).default('info')
 });
 export type AppConfig = z.infer<typeof schema> & {

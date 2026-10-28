@@ -1,101 +1,104 @@
 # VPS-MCP
 
-**Portable VPS management over Model Context Protocol (MCP)**, built with Node.js + TypeScript. The long-term goal is a reusable server that can run on any Ubuntu VPS using Docker Compose and connect to compatible MCP clients.
+A lightweight, portable **Node.js + TypeScript MCP server** with an OAuth-enabled read-only API and a clean, responsive, login-verified web control panel. Intended for Ubuntu VPS management via compatible MCP clients.
 
-> **Current status — Phase 02: local, read-only MCP core.** This repository has a working *development* Streamable HTTP MCP server. It **does not yet have authentication, external HTTPS, a secure tunnel, Docker controls, shell access, or a production container**. Do not expose its endpoint publicly or route it through a public tunnel.
+> **Phase 03 — implementation & CI verification.** OAuth 2.1 authorization-code/PKCE, admin login, HTTPS configuration, read-only MCP permissions, audit log and control panel are implemented. **Docker/Compose packaging, VPS deployment and a live ChatGPT connection are NOT completed.** Never expose an untested build to the internet.
 
-## Implemented in Phase 02
+## Included in Phase 03
 
-- Official `@modelcontextprotocol/server` v2 and stateless Streamable HTTP (JSON response mode).
-- `GET /health` — local service health.
-- `POST /mcp` — MCP initialize, tool discovery, and tool calls.
-- `system_status` — CPU count, architecture, memory, uptime, load and Node.js version.
-- `disk_usage` — filesystem statistics limited to `/` or `/tmp`; no arbitrary paths.
-- Zod input schemas and SDK validation, read-only tool annotations.
-- Explicit loopback-only binding (`127.0.0.1`), Host/Origin validation and no public listener.
-- Local unit, protocol integration and negative-path tests, plus GitHub Actions checks.
+- Official MCP TypeScript SDK v2; stateless Streamable HTTP at `POST /mcp`.
+- OAuth authorization server discovery, protected-resource metadata, dynamic client registration restricted to a configured exact redirect-URI allowlist, authorization code + PKCE-S256, access token and rotating refresh token.
+- Small HTML/CSS/vanilla-JS dashboard. Admin password verified with scrypt; HttpOnly SameSite cookie, secure cookie over HTTPS, CSRF-protected controls, login failure throttling.
+- Dashboard overview: MCP enable/disable switch, tool allowlist, system metrics, registered clients, active token counts, recent audit entries and logout.
+- `vps:read` scope gate on every MCP HTTP request; the two existing tools remain **read-only**: `system_status`, `disk_usage`.
+- No external shell execution, no file modifications, no Docker socket, no privilege escalation.
+- Config requires a native TLS certificate/key to bind publicly. For an HTTPS tunnel/reverse proxy, bind only to loopback and declare its externally accessible HTTPS origin.
+- Audit JSONL with redacted/fixed event fields; client IDs and hashed rotating refresh tokens persisted in a gitignored 0600 state file. Admin sessions reset on restart.
 
-These tools contain **no shell execution** and **no Docker socket access**. Only the modules above are active; the filesystem, Docker, deployment and security modules are future placeholders.
+## Requirements
 
-## Local development (Node.js 22+)
+- Node.js 22.9+ (22.23+ recommended), npm
+- A compatible MCP client; remote connections additionally require an HTTPS hostname or authenticated tunnel and the correct OAuth redirect URI.
+- **No additional VPS necessary.** This project consumes resources on the machine you run it on.
+
+## Local development (safe loopback-only)
 
 ```bash
 git clone https://github.com/vibtoolshq/VPS-MCP.git
 cd VPS-MCP
 npm install
+cp .env.example .env
+node scripts/hash-password.mjs
+```
+
+**Copy the printed `ADMIN_PASSWORD_HASH=...` into `.env`** (do not share it publicly). Set a strong admin password. Leave `MCP_HOST=127.0.0.1` and `MCP_PUBLIC_URL` unset for local tests.
+
+```bash
 npm run check
 npm run dev
 ```
 
-In another terminal **on the same machine**:
+Open the local panel at **http://127.0.0.1:3000** **on the same computer**, then log in using the configured admin username and password. The HTTP endpoint is inaccessible remotely in this mode.
 
-```bash
-curl -fsS http://127.0.0.1:3000/health
-```
+Useful paths:
 
-The MCP endpoint is `http://127.0.0.1:3000/mcp`; connect with a local compatible MCP client for protocol tests. The integration test uses the official MCP client SDK.
+| Route | Access |
+| --- | --- |
+| `/` | Login / compact admin panel |
+| `/health` | Minimal public health check |
+| `/api/session`, `/api/status` | Admin session only |
+| `/api/mcp` | Admin session + CSRF, temporary MCP kill switch |
+| `/mcp` | OAuth bearer token with `vps:read` |
+| `/.well-known/oauth-protected-resource` | OAuth protected resource discovery |
+| `/.well-known/oauth-authorization-server` | OAuth AS metadata |
+| `/oauth/register`, `/oauth/authorize`, `/oauth/token` | OAuth PKCE lifecycle |
 
-Build and run the compiled application:
+### Production-facing remote configuration (not yet deployed)
 
-```bash
-npm run build
-npm start
-```
+Two possible HTTPS arrangements:
 
-### Configuration
+1. **Native HTTPS**: `MCP_HOST=0.0.0.0` + `MCP_PUBLIC_URL=https://your-hostname[:port]` + cert/key paths. Bind only after access controls, DNS, TLS and firewall review.
+2. **Loopback + trusted HTTPS reverse proxy/tunnel**: keep `MCP_HOST=127.0.0.1`; set `MCP_PUBLIC_URL=https://your-hostname`. Terminate TLS at the trusted gateway and forward to the loopback service; preserve the correct external Host value.
 
-`MCP_HOST` is restricted to `127.0.0.1`; non-loopback hosts are rejected at startup. `MCP_PORT` defaults to `3000`, and `MCP_LOG_LEVEL` defaults to `info`. See `.env.example`.
+In either case, put the **exact redirect URI** from the ChatGPT connection UI into `OAUTH_ALLOWED_REDIRECT_URIS`. ChatGPT generally requires OAuth rather than a manually supplied static API key. The user must log into the panel and explicitly approve read-only access during OAuth authorization. <https://developers.openai.com/plugins/build/auth>
 
-Setting `MCP_HOST=0.0.0.0`, publishing the process through a reverse proxy/tunnel, or otherwise exposing this unauthenticated service is **unsupported and unsafe** in Phase 02.
+**Do not paste tokens, passwords, OAuth codes, admin hashes or `.env` contents into ChatGPT conversations or GitHub.** Do not enable arbitrary unauthenticated tunnels.
 
-## Project layout
+**Current limits:** runtime session/auth-code caches are memory-only; persisted OAuth clients and refresh-token hashes survive restarts, but existing access tokens do not. The audit log and state files are local disk files. Full live ChatGPT and TLS deployment testing is reserved for release verification.
+
+## Project tree
 
 ```text
 VPS-MCP/
 ├── README.md
-├── .github/workflows/phase02.yml
+├── public/{panel.html,panel.css,panel.js}
+├── src/
+│   ├── index.ts
+│   ├── server/{http.ts,mcp.ts}
+│   ├── security/{authentication.ts,oauth.ts,authorization.ts,audit.ts}
+│   ├── tools/{system.ts,filesystem.ts,docker.ts,deployment.ts}
+│   └── shared/config.ts
+├── config/permissions.example.json
+├── tests/{config.test.ts,mcp.test.ts}
+├── scripts/hash-password.mjs
+├── docs/{ARCHITECTURE.md,SECURITY.md,ROADMAP.md}
 ├── .env.example
 ├── package.json
 ├── tsconfig.json
-├── Dockerfile                 # intentionally NOT deployable yet
-├── compose.yaml               # intentionally no services yet
-├── config/permissions.example.json  # design only
-├── src/
-│   ├── index.ts                # development bootstrap
-│   ├── server/
-│   │   ├── mcp.ts              # live read-only tools
-│   │   └── http.ts             # HTTP mounting, localhost guards and health
-│   ├── tools/
-│   │   ├── system.ts           # live metrics
-│   │   ├── filesystem.ts       # future
-│   │   ├── docker.ts           # future
-│   │   └── deployment.ts       # future
-│   ├── security/               # future auth/policy/audit
-│   └── shared/config.ts        # validated environment
-├── tests/
-│   ├── config.test.ts
-│   └── mcp.test.ts
-├── scripts/
-└── docs/
-    ├── ARCHITECTURE.md
-    ├── SECURITY.md
-    └── ROADMAP.md
+├── Dockerfile       # intentionally not deployable until Phase 05
+└── compose.yaml     # intentionally empty until Phase 05
 ```
 
-## Planned phases
+## Planned five phases
 
-1. **Phase 01 — Scaffold:** structure, README, architecture, security and roadmap. Complete.
-2. **Phase 02 — Read-only MCP core:** SDK, HTTP, health, metrics, validation, tests. Implemented; CI status shown in GitHub Actions.
-3. **Phase 03 — Secure remote access:** authentication, HTTPS/tunnel integration, authorization gates, audit and abuse-control tests.
-4. **Phase 04 — Controlled operations:** optional limited filesystem, Docker and deployment operations with an isolated broker, approval model and tests.
-5. **Phase 05 — Portable release:** hardened production Docker image/Compose, installer, lifecycle management, verification on a fresh VPS.
-
-See [Roadmap](docs/ROADMAP.md) and [Security](docs/SECURITY.md).
-
-## Docker and remote ChatGPT usage
-
-**Not yet available.** `Dockerfile` and `compose.yaml` remain intentionally disabled until the final packaging phase. The local Phase 02 HTTP endpoint is not a URL to paste into ChatGPT. MCP client availability, authentication, and write permissions depend on the target product and account; no claim of universal ChatGPT compatibility is made.
+| Phase | Purpose | Status |
+| --- | --- | --- |
+| 01 | Structure & documentation | Complete |
+| 02 | Read-only MCP core & tests | Complete |
+| 03 | OAuth, permissions, audit, HTTPS support & compact verified-login UI | Implemented, CI checked |
+| 04 | Optional limited files/Docker/deployment operations | Not started |
+| 05 | Hardened Docker build, Compose, installer, VPS verification and ChatGPT integration test | Not started |
 
 ## License
 
-No license selected yet. Do not assume the public repository grants redistribution or modification permission.
+Not yet selected; a public GitHub repository does not by itself grant a redistribution license.
