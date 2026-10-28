@@ -11,6 +11,8 @@ const schema = z.object({
   MCP_SETUP_TOKEN_HASH: z.string().default(''),
   MCP_ADMIN_STATE_FILE: z.string().default('./data/admin.json'),
   MCP_PRIVATE_CONTAINER: z.enum(['true','false']).default('false'),
+  MCP_BIND_PORT: z.coerce.number().int().min(1024).max(65535).default(3000),
+  MCP_NETWORK_DRAFT_FILE: z.string().default('./data/network-draft.json'),
   OAUTH_ALLOWED_REDIRECT_URIS: z.string().default(''),
   MCP_ALLOWED_TOOLS: z.string().default('system_status,disk_usage'),
   MCP_AUDIT_FILE: z.string().default('./data/audit.jsonl'),

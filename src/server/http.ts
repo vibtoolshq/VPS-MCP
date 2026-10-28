@@ -14,6 +14,7 @@ import { OAuthService, OAuthError } from '../security/oauth.js';
 import { canRead, type AccessIdentity } from '../security/authorization.js';
 import { ApprovalQueue } from '../security/approvals.js';
 import { PolicyStore } from '../security/policy.js';
+import { NetworkSettings } from '../security/network.js';
 import { AdminSetup } from '../security/admin-setup.js';
 import { AuditLog } from '../security/audit.js';
 import { systemStatus } from '../tools/system.js';
@@ -77,6 +78,7 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
   const audit=new AuditLog(config.MCP_AUDIT_FILE);
   const approvals=new ApprovalQueue(audit);
   const policy=new PolicyStore(config);
+  const network=new NetworkSettings(config);
   const requestContext=new AsyncLocalStorage<AccessIdentity>();
   let mcpEnabled=loadMcpEnabled(config.MCP_CONTROL_FILE);
   const rates=new Map<string,{since:number;count:number}>();
@@ -180,8 +182,25 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
           oauth:oauth.stats(), system:systemStatus(),publicHttps:config.secureCookies,
           audit:await audit.list(20),writesEnabled:config.writesEnabled,
           pendingApprovals:approvals.pending(), enrollmentSeconds:oauth.enrollment(),
-          policy:policy.snapshot(), clients:oauth.listClients().map(c=>({...c, scopes:policy.clientScopes(c.id), tools:policy.clientAllowedTools(c.id)}))
+          network:network.snapshot(),policy:policy.snapshot(), clients:oauth.listClients().map(c=>({...c, scopes:policy.clientScopes(c.id), tools:policy.clientAllowedTools(c.id)}))
         });
+      }
+      if(path==='/api/network/dns' && req.method==='GET'){
+        const session=authenticated(req,res,sessions);if(!session)return;
+        if(!rateAllowed(req,'network.dns',12))return json(res,429,{error:'rate_limited'});
+        return json(res,200,await network.dnsCheck());
+      }
+      if(path==='/api/network/plan' && req.method==='POST'){
+        const session=authenticated(req,res,sessions);if(!session)return;
+        if(!csrf(req,res,sessions,session))return;
+        const input=await body(req,'json');
+        try{
+          const planned=network.save(input);
+          await audit.recordDurable('panel.status','success',session.username,'network-plan-staged');
+          return json(res,200,{ok:true,network:planned});
+        }catch{
+          return json(res,400,{error:'invalid_network_plan_or_storage'});
+        }
       }
       if(path==='/api/mcp' && req.method==='POST'){
         const session=authenticated(req,res,sessions);if(!session)return;

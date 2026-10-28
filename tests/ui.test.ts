@@ -63,6 +63,7 @@ function makeHarness() {
     async fireLogin(){return elements.get('login-form')!.fire('submit');},
     status:{
       mcpEnabled:true,endpoint:'https://example.com/mcp',allowedTools:['system_status'],
+      network:{applied:{origin:'http://127.0.0.1:3000',hostPort:3000,internalPort:3000,hostBind:'127.0.0.1',ssl:'not-configured'},draft:{domain:'',hostPort:3000,sslMode:'private-only'}},
       oauth:{clients:2,activeTokens:1},system:{cpuCount:2,totalMemoryBytes:4000000000,freeMemoryBytes:2500000000,uptimeSeconds:7200},
       writesEnabled:true,publicHttps:true,enrollmentSeconds:0,
       pendingApprovals:[{id:'approved-request',clientId:'testClient',summary:'Create file allowed.txt'}],
@@ -229,4 +230,45 @@ test('first visit shows mandatory setup, blocks old login and opens login after 
  const call=h.calls.find(x=>x.url==='/api/setup');
  assert.ok(call);
  assert.match(String(call.options.body),/unique-password-2026/);
+});
+
+test('sidebar switches between seven compact pages without changing server state',async()=>{
+ const h=makeHarness();
+ h.responses.set('/api/session',{status:200,body:{csrf:'sidebar-csrf'}});
+ h.responses.set('/api/status',{status:200,body:h.status});
+ vm.runInContext(js,h.context);await h.flush();
+ const pages=['overview','tools','operations','clients','approvals','network','security'];
+ assert.equal(h.elements.get('page-overview')!.hidden,false);
+ for(const key of pages){
+  await h.fire('nav-'+key);
+  assert.equal(h.elements.get('page-'+key)!.hidden,false,'page='+key);
+  for(const other of pages.filter(x=>x!==key))
+    assert.equal(h.elements.get('page-'+other)!.hidden,true,other+' leaked while '+key);
+ }
+ assert.equal(h.elements.get('current-section')!.textContent,'Security audit');
+ assert.equal(h.calls.filter(x=>x.url?.startsWith('/api/control/')).length,0);
+});
+test('network save is a CSRF-protected draft; diagnostics never claim HTTPS applied',async()=>{
+ const h=makeHarness();
+ h.responses.set('/api/session',{status:200,body:{csrf:'network-csrf'}});
+ h.responses.set('/api/status',{status:200,body:h.status});
+ h.responses.set('/api/network/plan',{status:200,body:{ok:true}});
+ h.responses.set('/api/network/dns',{status:200,body:{domain:'mcp.example.com',state:'resolved',ipv4:['203.0.113.10'],ipv6:[]}});
+ vm.runInContext(js,h.context);await h.flush();
+ await h.fire('nav-network');
+ assert.equal(h.elements.get('network-ssl-status')!.textContent,'Not installed (private mode)');
+ h.elements.get('network-domain')!.value='mcp.example.com';
+ h.elements.get('network-port')!.value='3344';
+ h.elements.get('network-mode')!.value='external-https';
+ h.setConfirm(false);
+ await h.fire('network-form','submit');
+ assert.equal(h.calls.some(x=>x.url==='/api/network/plan'),false);
+ h.setConfirm(true);
+ await h.fire('network-form','submit');
+ const sent=h.calls.find(x=>x.url==='/api/network/plan');
+ assert.ok(sent);
+ assert.equal((sent.options.headers as Record<string,string>)['x-csrf-token'],'network-csrf');
+ assert.match(String(sent.options.body),/"hostPort":3344/);
+ await h.fire('network-check-dns');
+ assert.equal(h.elements.get('network-dns-result')!.textContent,'203.0.113.10');
 });

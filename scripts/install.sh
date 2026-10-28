@@ -25,6 +25,8 @@ cat > .env <<EOF
 # Auto-generated. No manual .env editing is required.
 MCP_HOST=0.0.0.0
 MCP_PORT=3000
+MCP_BIND_PORT=3000
+MCP_NETWORK_DRAFT_FILE=/data/network-draft.json
 MCP_PUBLIC_URL=http://127.0.0.1:3000
 MCP_PRIVATE_CONTAINER=true
 ADMIN_USERNAME=admin

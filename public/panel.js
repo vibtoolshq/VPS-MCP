@@ -21,6 +21,7 @@ function showLogin(message='',focus=false){
 function showDashboard(){
   state.signedIn=true;
   $('login-view').hidden=true;$('setup-view').hidden=true;$('dashboard').hidden=false;$('logout').hidden=false;
+  switchPage('overview');
 }
 function humanError(error){
   if(error && error.network)return 'Cannot reach the control panel. Check the server or your connection.';
@@ -244,6 +245,39 @@ function renderAdvanced(data){
   }
 }
 
+
+const PAGES={overview:'Overview',tools:'Tool access',operations:'Operations',clients:'Clients',approvals:'Approvals',network:'Domain & SSL',security:'Security audit'};
+function switchPage(key){
+  if(!state.signedIn || !Object.hasOwn(PAGES,key))return;
+  state.currentPage=key;
+  for(const [id,label] of Object.entries(PAGES)){
+    $('page-'+id).hidden=id!==key;
+    $('nav-'+id).setAttribute('aria-current',id===key?'page':'false');
+  }
+  put('current-section',PAGES[key]);
+  feedback('');
+}
+function renderNetwork(network){
+  const info=network?.applied || {};
+  put('network-bind',info.hostBind || 'Not reported');
+  put('network-active-port',info.hostPort ?? '—');
+  put('network-internal-port',info.internalPort ?? '—');
+  put('network-origin',info.origin || 'Not configured');
+  put('network-ssl-status',info.ssl==='native-https-configured'?'Native HTTPS configured':'Not installed (private mode)');
+  const draft=network?.draft || {domain:'',hostPort:3000,sslMode:'private-only'};
+  $('network-domain').value=draft.domain || '';
+  $('network-port').value=String(draft.hostPort ?? 3000);
+  $('network-mode').value=draft.sslMode || 'private-only';
+  $('network-check-dns').disabled=!draft.domain;
+  const pending=Number(draft.hostPort)!==Number(info.hostPort);
+  put('network-saved',network ? pending?
+    'Draft saved — port change NOT applied. Run the SSH command below to apply safely.':
+    'Current private port and saved draft match. Domain/SSL plans are NOT deployed.':
+    'Network settings are not available on this server version.');
+  $('network-save').disabled=!network;
+  $('network-copy-command').disabled=!network;
+}
+
 function render(data){
   state.policy=data.policy||null;
   state.mcpEnabled=data.mcpEnabled===true;
@@ -275,6 +309,8 @@ function render(data){
   }
   renderApprovals(asArray(data.pendingApprovals),data.writesEnabled===true);
   renderAdvanced(data);
+  renderNetwork(data.network);
+  $('approval-not-enabled').hidden=data.writesEnabled===true;
   state.audit=asArray(data.audit);
   renderAudit();
 }
@@ -396,4 +432,44 @@ $('write-master').addEventListener('click',async()=>{
   await runAction($('write-master'),()=>api('/api/control/writes',{
     method:'POST',headers:{'content-type':'application/json','x-csrf-token':state.csrf},
     body:JSON.stringify({enabled:!enabled})}),enabled?'Writes paused.':'Write gate updated.');
+});
+
+
+for(const name of Object.keys(PAGES)){
+  $('nav-'+name).addEventListener('click',()=>switchPage(name));
+}
+$('network-form').addEventListener('submit',async event=>{
+  event.preventDefault();
+  if(!state.signedIn)return;
+  const domain=$('network-domain').value.trim().toLowerCase();
+  const hostPort=Number($('network-port').value);
+  const sslMode=$('network-mode').value;
+  if(!Number.isInteger(hostPort)||hostPort<1024||hostPort>65535){
+    feedback('Choose a private host port from 1024 to 65535.','error','network-feedback');return;
+  }
+  if(sslMode==='external-https'&&!domain){
+    feedback('Enter a domain before planning external HTTPS.','error','network-feedback');return;
+  }
+  if(!window.confirm('Save this network configuration as a DRAFT? It will NOT apply DNS, SSL or Docker port changes.'))return;
+  await runAction($('network-save'),()=>api('/api/network/plan',{
+    method:'POST',headers:{'content-type':'application/json','x-csrf-token':state.csrf},
+    body:JSON.stringify({domain,hostPort,sslMode})
+  }),'Network draft saved. Changes are not applied. Use trusted SSH to apply the private port.');
+});
+$('network-check-dns').addEventListener('click',async()=>{
+  if(!state.signedIn)return;
+  const button=$('network-check-dns');button.disabled=true;
+  put('network-dns-result','Checking DNS…');
+  try{
+    const response=await api('/api/network/dns');
+    const ips=[...asArray(response.ipv4),...asArray(response.ipv6)];
+    put('network-dns-result',ips.length?ips.join(', '):'No DNS records resolved');
+    if(ips.length)feedback('DNS records found; this does not verify SSL or public service availability.','success','network-feedback');
+  }catch(error){
+    if(state.signedIn){put('network-dns-result','DNS check failed');feedback(humanError(error),'error','network-feedback');}
+  }finally{button.disabled=false;}
+});
+$('network-copy-command').addEventListener('click',async()=>{
+  try{await navigator.clipboard.writeText('sudo bash scripts/apply-network.sh');feedback('SSH apply command copied.','success','network-feedback');}
+  catch{feedback('Clipboard unavailable. Copy the command shown above.','error','network-feedback');}
 });
