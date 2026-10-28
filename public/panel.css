@@ -150,3 +150,19 @@ button:disabled{opacity:.55}
 @media(max-width:1020px){.workspace-layout{grid-template-columns:176px minmax(0,1fr);gap:14px}.workspace-page .stats{grid-template-columns:repeat(2,minmax(0,1fr))}.network-form{grid-template-columns:1fr 1fr}.network-form>div:nth-child(3){grid-column:1/-1}}
 @media(max-width:700px){.shell{padding:0 12px}.workspace-layout{display:block;padding-top:12px}.workspace-sidebar{position:static;min-height:auto;padding:8px 9px 9px;margin-bottom:14px}.side-heading,.sidebar-group-label,.sidebar-bottom{display:none}.sidebar-menu{flex-direction:row;overflow-x:auto;gap:5px;padding-bottom:2px;scrollbar-width:thin}.side-link{width:auto;min-width:98px;flex:0 0 auto;padding:7px 9px;justify-content:center;gap:5px;min-height:39px}.side-copy small{display:none}.side-copy strong{font-size:11px}.side-icon{width:16px;font-size:14px}.workspace-page .heading{margin:13px 0 16px}.workspace-page .heading h1{font-size:23px}.mobile-section-label{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#8398b5}.mobile-section-label span{font-weight:700;color:#b9cceb}.network-form{grid-template-columns:1fr}.network-form>div:nth-child(3){grid-column:auto}.network-checklist{grid-template-columns:1fr}}
 @media(max-width:400px){.workspace-page .stats{grid-template-columns:repeat(2,minmax(0,1fr))}.workspace-page .metric{font-size:21px}.network-code{max-width:52%}}
+
+/* Real Cloudflare DNS management: compact, keyboard-accessible rows */
+#cloudflare-manager .network-form{grid-template-columns:1fr 1.25fr}
+#cloudflare-manager .network-form-actions{grid-column:1/-1}
+#dns-records-panel .network-form{grid-template-columns:repeat(3,minmax(0,1fr))}
+#dns-record-rows td{font-size:12px;max-width:235px;overflow-wrap:anywhere;vertical-align:middle}
+#dns-record-rows .row{display:flex;gap:5px;flex-wrap:wrap}
+#dns-record-rows button{padding:6px 9px;font-size:11px;width:auto}
+#dns-record-rows .danger{color:#ff9c9c}
+.dns-checkbox{display:flex!important;align-items:center;gap:8px;padding-top:11px;font-size:12px;color:#b4c5df}
+.dns-checkbox input{width:16px!important;height:16px!important;accent-color:#8ea5ff}
+#dns-record-form{margin-top:18px;border-top:1px solid #2d3d55;padding-top:16px}
+#dns-connected-actions>.row{display:flex;gap:9px;flex-wrap:wrap}
+#dns-connected-actions>.row>button{width:auto}
+@media(max-width:850px){#cloudflare-manager .network-form,#dns-records-panel .network-form{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){#cloudflare-manager .network-form,#dns-records-panel .network-form{grid-template-columns:1fr}}

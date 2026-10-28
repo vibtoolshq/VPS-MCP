@@ -15,7 +15,7 @@ fi
 # Accept only the application-generated private state files and directories.
 while IFS= read -r entry; do
  case "$entry" in
-   './'|'./admin.json'|'./admin.json.complete'|'./oauth-state.json'|'./control.json'|'./policy.json'|'./audit.jsonl'|'./network-draft.json') ;;
+   './'|'./admin.json'|'./admin.json.complete'|'./oauth-state.json'|'./control.json'|'./policy.json'|'./audit.jsonl'|'./network-draft.json'|'./dns-provider.json') ;;
    *) echo "Backup contains an unexpected path; refusing restore." >&2;exit 1;;
  esac
 done < <(tar -tzf "$source_dir/data.tar.gz")

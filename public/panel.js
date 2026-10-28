@@ -2,6 +2,7 @@
 // Dashboard-only client: no auth bypass, no direct privileged broker or terminal calls.
 const $ = id => document.getElementById(id);
 const state = { csrf:'', signedIn:false, mcpEnabled:false, enrollmentSeconds:0, endpoint:'', audit:[], refreshing:false, activeAction:false, countdownEnd:0, networkEditing:false, networkDraftDomain:'', networkResolvedDomain:'' };
+state.dnsConnected=false;state.dnsZone='';state.dnsRecords=[];state.dnsEditingId='';
 const put = (id, value) => { $(id).textContent = String(value ?? ''); };
 const asArray = value => Array.isArray(value) ? value : [];
 const formatBytes = value => Number.isFinite(value) && value>=0 ? (value/1073741824).toFixed(1)+' GiB' : '—';
@@ -319,6 +320,7 @@ function render(data){
   renderApprovals(asArray(data.pendingApprovals),data.writesEnabled===true);
   renderAdvanced(data);
   renderNetwork(data.network);
+  renderCloudflare(data.dnsProvider);
   $('approval-not-enabled').hidden=data.writesEnabled===true;
   state.audit=asArray(data.audit);
   renderAudit();
@@ -502,4 +504,173 @@ $('network-check-dns').addEventListener('click',async()=>{
 $('network-copy-command').addEventListener('click',async()=>{
   try{await navigator.clipboard.writeText('sudo bash scripts/apply-network.sh');feedback('SSH apply command copied.','success','network-feedback');}
   catch{feedback('Clipboard unavailable. Copy the command shown above.','error','network-feedback');}
+});
+
+
+const DNS_TYPES=new Set(['A','AAAA','CNAME','TXT','MX']);
+function dnsError(error){
+ const known={
+  dns_provider_unreachable:'Cloudflare could not be reached. Check VPS internet access.',
+  dns_provider_access_denied:'Cloudflare token lacks access. Use Zone Read and DNS Edit for this zone.',
+  dns_provider_not_connected:'Connect a Cloudflare zone first.',
+  dns_provider_rate_limited:'Cloudflare rate limit reached; try later.',
+  dns_record_changed_refresh_required:'Record changed since you loaded it. Reload and review before deleting.',
+  invalid_dns_record:'Check record name, content, TTL and proxy fields.',
+  dns_provider_request_failed:'Cloudflare rejected this operation. Check the DNS values and zone permissions.',
+  dns_storage_unavailable:'Private DNS settings storage is unavailable.',
+  audit_storage_unavailable:'Security audit storage unavailable. No change was authorized.'
+ };
+ return known[error?.code]||humanError(error);
+}
+function renderCloudflare(provider){
+ const connected=provider?.configured===true;
+ const oldZone=state.dnsZone;
+ state.dnsConnected=connected;
+ state.dnsZone=connected?String(provider.zone||''):'';
+ put('dns-provider-status',connected?'Connected · '+state.dnsZone:'Not connected');
+ put('dns-zone',state.dnsZone||'—');
+ $('dns-connect-form').hidden=connected;
+ $('dns-connected-actions').hidden=!connected;
+ $('dns-records-panel').hidden=!connected;
+ $('dns-refresh').disabled=!connected;
+ if(!connected||oldZone!==state.dnsZone){
+   state.dnsRecords=[];state.dnsEditingId='';
+   $('dns-record-rows').replaceChildren();
+   const tr=document.createElement('tr'),td=document.createElement('td');
+   td.setAttribute('colspan','5');td.textContent='Select Load DNS records.';tr.append(td);
+   $('dns-record-rows').append(tr);
+ }
+}
+function dnsSetFormState(){
+ const type=$('dns-type').value;
+ $('dns-mx-wrap').hidden=type!=='MX';
+ $('dns-proxied').disabled=!['A','AAAA','CNAME'].includes(type);
+ if($('dns-proxied').disabled)$('dns-proxied').checked=false;
+}
+function dnsClearEditor(){
+ state.dnsEditingId='';
+ $('dns-type').value='A';$('dns-name').value='';$('dns-content').value='';
+ $('dns-ttl').value='1';$('dns-priority').value='10';$('dns-proxied').checked=false;
+ $('dns-type').disabled=false;
+ $('dns-cancel-edit').hidden=true;
+ put('dns-record-save','Create record');
+ dnsSetFormState();
+}
+function dnsRow(record){
+ const row=document.createElement('tr');
+ for(const value of [record.type,record.name,record.content,
+   record.ttl===1?'Auto':String(record.ttl)]){
+   const td=document.createElement('td');td.textContent=String(value||'—');row.append(td);
+ }
+ const actions=document.createElement('td'),buttons=document.createElement('div');
+ buttons.className='row';
+ if(DNS_TYPES.has(record.type)){
+   const edit=document.createElement('button');
+   edit.type='button';edit.className='ghost';edit.textContent='Edit';
+   edit.addEventListener('click',()=>{
+     if(!state.signedIn||state.activeAction)return;
+     state.dnsEditingId=record.id;
+     $('dns-type').value=record.type;$('dns-type').disabled=true;
+     $('dns-name').value=record.name;$('dns-content').value=record.content;
+     $('dns-ttl').value=String(record.ttl);
+     if(!$('dns-ttl').value)$('dns-ttl').value='1';
+     $('dns-proxied').checked=record.proxied===true;
+     $('dns-priority').value=String(record.priority??10);
+     $('dns-cancel-edit').hidden=false;
+     put('dns-record-save','Update record');
+     dnsSetFormState();
+     feedback('Review all record values before updating live DNS.','success','dns-record-feedback');
+   });
+   const del=document.createElement('button');
+   del.type='button';del.className='ghost danger';del.textContent='Delete';
+   del.addEventListener('click',async()=>{
+     if(!state.signedIn||state.activeAction)return;
+     const warning='Permanently delete '+record.type+' '+record.name+'? This changes LIVE Cloudflare DNS.';
+     if(!window.confirm(warning)||!window.confirm('Confirm DELETE: '+record.name+'. Website or email access may break.'))return;
+     state.activeAction=true;del.disabled=true;
+     try{
+       await api('/api/dns/record',{method:'POST',
+         headers:{'content-type':'application/json','x-csrf-token':state.csrf},
+         body:JSON.stringify({action:'delete',id:record.id,confirmName:record.name,confirmType:record.type})});
+       feedback('Record deleted in Cloudflare. DNS caches may take time to update.','success','dns-record-feedback');
+       dnsClearEditor();await loadDnsRecords();
+     }catch(error){feedback(dnsError(error),'error','dns-record-feedback');}
+     finally{state.activeAction=false;del.disabled=false;}
+   });
+   buttons.append(edit,del);
+ }else{
+   const locked=document.createElement('span');
+   locked.textContent='Read-only';locked.className='sub';buttons.append(locked);
+ }
+ actions.append(buttons);row.append(actions);return row;
+}
+async function loadDnsRecords(){
+ if(!state.signedIn||!state.dnsConnected)return;
+ const button=$('dns-refresh');button.disabled=true;
+ try{
+   const response=await api('/api/dns/records');
+   if(response.zone!==state.dnsZone)return;
+   state.dnsRecords=asArray(response.records);
+   const rows=$('dns-record-rows');rows.replaceChildren();
+   if(!state.dnsRecords.length){
+     const tr=document.createElement('tr'),td=document.createElement('td');
+     td.setAttribute('colspan','5');td.textContent='No DNS records in this zone';tr.append(td);rows.append(tr);
+   }
+   for(const record of state.dnsRecords)rows.append(dnsRow(record));
+   feedback(state.dnsRecords.length+' records loaded from Cloudflare'+
+     (response.limited?' (first 1000 only)':''), 'success','dns-feedback');
+ }catch(error){feedback(dnsError(error),'error','dns-feedback');}
+ finally{button.disabled=false;}
+}
+$('dns-type').addEventListener('change',dnsSetFormState);
+$('dns-cancel-edit').addEventListener('click',dnsClearEditor);
+$('dns-refresh').addEventListener('click',loadDnsRecords);
+$('dns-connect-form').addEventListener('submit',async event=>{
+ event.preventDefault();
+ if(!state.signedIn||state.activeAction)return;
+ const zoneId=$('dns-zone-id').value.trim();
+ const token=$('dns-token').value.trim();
+ if(!window.confirm('Connect this Cloudflare zone? The API token is saved only in private server storage and is not displayed again.'))return;
+ state.activeAction=true;$('dns-connect').disabled=true;
+ try{
+   await api('/api/dns/connect',{method:'POST',
+     headers:{'content-type':'application/json','x-csrf-token':state.csrf},
+     body:JSON.stringify({zoneId,token})});
+   $('dns-token').value='';$('dns-zone-id').value='';
+   await refresh();
+   feedback('Cloudflare zone connected. Load records to begin.','success','dns-feedback');
+ }catch(error){feedback(dnsError(error),'error','dns-feedback');}
+ finally{state.activeAction=false;$('dns-connect').disabled=false;}
+});
+$('dns-disconnect').addEventListener('click',async()=>{
+ if(!state.signedIn||state.activeAction)return;
+ if(!window.confirm('Disconnect Cloudflare from this panel? This removes the stored token but does not delete any DNS records.'))return;
+ state.activeAction=true;$('dns-disconnect').disabled=true;
+ try{
+   await api('/api/dns/disconnect',{method:'POST',
+     headers:{'content-type':'application/json','x-csrf-token':state.csrf},body:'{}'});
+   dnsClearEditor();await refresh();
+   feedback('Cloudflare disconnected. Existing DNS records are unchanged.','success','dns-feedback');
+ }catch(error){feedback(dnsError(error),'error','dns-feedback');}
+ finally{state.activeAction=false;$('dns-disconnect').disabled=false;}
+});
+$('dns-record-form').addEventListener('submit',async event=>{
+ event.preventDefault();
+ if(!state.signedIn||!state.dnsConnected||state.activeAction)return;
+ const type=$('dns-type').value,name=$('dns-name').value.trim();
+ const record={type,name,content:$('dns-content').value,ttl:Number($('dns-ttl').value),
+   proxied:$('dns-proxied').checked===true,...(type==='MX'?{priority:Number($('dns-priority').value)}:{})};
+ const edit=!!state.dnsEditingId;
+ if(!window.confirm((edit?'UPDATE ':'CREATE ')+type+' '+name+
+    ' on Cloudflare? This immediately changes LIVE DNS.'))return;
+ state.activeAction=true;$('dns-record-save').disabled=true;
+ try{
+   await api('/api/dns/record',{method:'POST',
+     headers:{'content-type':'application/json','x-csrf-token':state.csrf},
+     body:JSON.stringify({action:edit?'update':'create',...(edit?{id:state.dnsEditingId}:{}),record})});
+   dnsClearEditor();
+   feedback('Cloudflare DNS '+(edit?'updated':'created')+'. DNS propagation may take time.','success','dns-record-feedback');
+   await loadDnsRecords();
+ }catch(error){feedback(dnsError(error),'error','dns-record-feedback');}
+ finally{state.activeAction=false;$('dns-record-save').disabled=false;}
 });

@@ -85,6 +85,39 @@
 <button class="ghost compact-action" id="network-check-dns" type="button">Check DNS records</button>
 </article>
 </div>
+<section class="card network-config-card" id="cloudflare-manager">
+<div class="section-head"><h2>Manage real DNS records</h2><span class="tag">Cloudflare API</span></div>
+<p class="sub tight">Connect one Cloudflare DNS zone with a zone-scoped API token. Record changes here update your actual Cloudflare DNS. Domain registration and SSL certificates are managed separately.</p>
+<div class="network-result"><span>Cloudflare connection</span><strong id="dns-provider-status" aria-live="polite">Not connected</strong></div>
+<form id="dns-connect-form" class="network-form">
+<div><label for="dns-zone-id">Cloudflare Zone ID</label><input id="dns-zone-id" type="text" minlength="32" maxlength="32" pattern="[0-9A-Fa-f]{32}" placeholder="32-character Zone ID" autocomplete="off" required><small class="field-help">Find this in Cloudflare → your domain → Overview.</small></div>
+<div><label for="dns-token">Zone-scoped API token</label><input id="dns-token" type="password" maxlength="256" autocomplete="off" spellcheck="false" placeholder="Token with Zone Read and DNS Edit" required><small class="field-help">Only the selected zone. Never use a Global API Key.</small></div>
+<div class="network-form-actions"><button id="dns-connect" type="submit" class="primary">Connect Cloudflare</button></div>
+</form>
+<div id="dns-connected-actions" hidden>
+<div class="network-result"><span>Managed zone</span><strong id="dns-zone">—</strong></div>
+<div class="row"><button id="dns-refresh" class="ghost" type="button">Load DNS records</button><button id="dns-disconnect" class="ghost danger" type="button">Disconnect token</button></div>
+</div>
+<p id="dns-feedback" class="feedback" role="status" aria-live="polite"></p>
+</section>
+<section class="card network-config-card" id="dns-records-panel" hidden>
+<div class="section-head"><h2>DNS records</h2><span class="tag">Live Cloudflare data</span></div>
+<p class="sub tight">Supported changes: A, AAAA, CNAME, TXT and MX. NS, SOA and other provider-managed records are shown but are not editable here. DNS updates can interrupt websites or email: verify the values first.</p>
+<div class="table-scroller" tabindex="0" role="region" aria-label="Cloudflare DNS records"><table>
+<thead><tr><th>Type</th><th>Name</th><th>Content</th><th>TTL</th><th>Actions</th></tr></thead>
+<tbody id="dns-record-rows"><tr><td colspan="5">Select Load DNS records.</td></tr></tbody>
+</table></div>
+<form id="dns-record-form" class="network-form dns-record-form">
+<div><label for="dns-type">Record type</label><select id="dns-type"><option>A</option><option>AAAA</option><option>CNAME</option><option>TXT</option><option>MX</option></select></div>
+<div><label for="dns-name">Name</label><input id="dns-name" placeholder="@ or www" maxlength="253" required><small class="field-help">@ = root domain</small></div>
+<div><label for="dns-content">Value / target</label><input id="dns-content" maxlength="2048" placeholder="IP, hostname or text" required></div>
+<div><label for="dns-ttl">TTL</label><select id="dns-ttl"><option value="1">Automatic</option><option value="60">1 min</option><option value="300">5 min</option><option value="3600">1 hour</option><option value="86400">1 day</option></select></div>
+<div id="dns-mx-wrap" hidden><label for="dns-priority">MX priority</label><input id="dns-priority" type="number" min="0" max="65535" value="10"></div>
+<div><label for="dns-proxied">Cloudflare proxy</label><label class="dns-checkbox"><input id="dns-proxied" type="checkbox"> Proxy eligible A/AAAA/CNAME records</label></div>
+<div class="network-form-actions"><button type="button" class="ghost" id="dns-cancel-edit" hidden>Cancel edit</button><button type="submit" class="primary" id="dns-record-save">Create record</button></div>
+</form>
+<p id="dns-record-feedback" class="feedback" role="status" aria-live="polite"></p>
+</section>
 <section class="card network-config-card">
 <div class="section-head"><h2>Network configuration plan</h2><span class="tag">Draft, not deployed</span></div>
 <p class="sub tight">Saving a plan never restarts Docker or changes public DNS/SSL. Only a trusted host administrator can apply a private port.</p>

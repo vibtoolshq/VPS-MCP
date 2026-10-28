@@ -15,6 +15,7 @@ import { canRead, type AccessIdentity } from '../security/authorization.js';
 import { ApprovalQueue } from '../security/approvals.js';
 import { PolicyStore } from '../security/policy.js';
 import { NetworkSettings } from '../security/network.js';
+import { CloudflareDns,DnsError } from '../security/cloudflare-dns.js';
 import { AdminSetup } from '../security/admin-setup.js';
 import { AuditLog } from '../security/audit.js';
 import { systemStatus } from '../tools/system.js';
@@ -71,7 +72,7 @@ function csrf(req:IncomingMessage,res:ServerResponse,sessions:SessionManager,ses
 function consentHtml(name:string,id:string,csrfToken:string,writes:boolean){
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Authorize VPS-MCP</title><link rel="stylesheet" href="/assets/panel.css"></head><body><div class="shell"><header class="topbar"><div class="brand"><span class="brand-icon">V</span>VPS/MCP</div><span class="tag">OAuth authorization</span></header><main><section class="login-card"><div class="eyebrow">AUTHORIZATION REQUEST</div><h1>Allow MCP access?</h1><p class="sub">The client <strong>${escape(name)}</strong> ${writes?'requests READ + WRITE permissions. An additional explicit one-time approval in the dashboard is required for each supported write action.':'requests read-only status and workspace information. No write permission is granted.'}</p><form action="/oauth/approve" method="post"><input type="hidden" name="id" value="${escape(id)}"><input type="hidden" name="csrf" value="${escape(csrfToken)}"><button type="submit" name="decision" value="allow" class="primary">Approve requested access</button><button type="submit" name="decision" value="deny" class="ghost">Deny</button></form><div class="footnote">Confirm only if you initiated this connection.</div></section></main></div></body></html>`;
 }
-export function createHttpServer(config:AppConfig = loadConfig()) {
+export function createHttpServer(config:AppConfig = loadConfig(), dnsFetch:typeof fetch = fetch) {
   const oauth=new OAuthService(config);
   const setup=new AdminSetup(config);
   const sessions=new SessionManager(config);
@@ -79,6 +80,7 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
   const approvals=new ApprovalQueue(audit);
   const policy=new PolicyStore(config);
   const network=new NetworkSettings(config);
+  const dnsProvider=new CloudflareDns(config,dnsFetch);
   const requestContext=new AsyncLocalStorage<AccessIdentity>();
   let mcpEnabled=loadMcpEnabled(config.MCP_CONTROL_FILE);
   const rates=new Map<string,{since:number;count:number}>();
@@ -182,8 +184,54 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
           oauth:oauth.stats(), system:systemStatus(),publicHttps:config.secureCookies,
           audit:await audit.list(20),writesEnabled:config.writesEnabled,
           pendingApprovals:approvals.pending(), enrollmentSeconds:oauth.enrollment(),
-          network:network.snapshot(),policy:policy.snapshot(), clients:oauth.listClients().map(c=>({...c, scopes:policy.clientScopes(c.id), tools:policy.clientAllowedTools(c.id)}))
+          network:network.snapshot(),dnsProvider:dnsProvider.status(),policy:policy.snapshot(), clients:oauth.listClients().map(c=>({...c, scopes:policy.clientScopes(c.id), tools:policy.clientAllowedTools(c.id)}))
         });
+      }
+      if(path==='/api/dns/records' && req.method==='GET'){
+        const session=authenticated(req,res,sessions);if(!session)return;
+        if(!rateAllowed(req,'cloudflare.list',15))return json(res,429,{error:'rate_limited'});
+        try{return json(res,200,await dnsProvider.list());}
+        catch(err){return json(res,err instanceof DnsError?err.status:503,
+          {error:err instanceof DnsError?err.code:'dns_storage_unavailable'});}
+      }
+      if(path==='/api/dns/connect' && req.method==='POST'){
+        const session=authenticated(req,res,sessions);if(!session)return;
+        if(!csrf(req,res,sessions,session))return;
+        if(!rateAllowed(req,'cloudflare.connect',5))return json(res,429,{error:'rate_limited'});
+        const payload=await body(req,'json');
+        try{
+          await audit.recordDurable('panel.status','success',session.username,'dns-connect-authorized');
+          return json(res,200,{ok:true,provider:await dnsProvider.connect(payload)});
+        }catch(err){return json(res,err instanceof DnsError?err.status:503,
+          {error:err instanceof DnsError?err.code:'dns_storage_unavailable'});}
+      }
+      if(path==='/api/dns/disconnect' && req.method==='POST'){
+        const session=authenticated(req,res,sessions);if(!session)return;
+        if(!csrf(req,res,sessions,session))return;
+        try{
+          await audit.recordDurable('panel.status','success',session.username,'dns-disconnect-authorized');
+          const status=dnsProvider.disconnect();
+          audit.record('panel.status','success',session.username,'dns-disconnected');
+          return json(res,200,{ok:true,provider:status});
+        }catch{return json(res,503,{error:'dns_storage_unavailable'});}
+      }
+      if(path==='/api/dns/record' && req.method==='POST'){
+        const session=authenticated(req,res,sessions);if(!session)return;
+        if(!csrf(req,res,sessions,session))return;
+        if(!rateAllowed(req,'cloudflare.write',20))return json(res,429,{error:'rate_limited'});
+        const input=await body(req,'json') as Record<string,unknown>;
+        if(!input||!['create','update','delete'].includes(String(input.action)))
+          return json(res,400,{error:'invalid_dns_operation'});
+        try{
+          await audit.recordDurable('panel.status','success',session.username,'dns-'+String(input.action)+'-authorized');
+          let record;
+          if(input.action==='create')record=await dnsProvider.create(input.record);
+          else if(input.action==='update')record=await dnsProvider.update(String(input.id||''),input.record);
+          else record=await dnsProvider.remove(String(input.id||''),input.confirmName,input.confirmType);
+          audit.record('panel.status','success',session.username,'dns-'+String(input.action)+'-completed');
+          return json(res,200,{ok:true,result:record});
+        }catch(err){return json(res,err instanceof DnsError?err.status:503,
+          {error:err instanceof DnsError?err.code:'dns_storage_unavailable'});}
       }
       if(path==='/api/network/dns' && req.method==='GET'){
         const session=authenticated(req,res,sessions);if(!session)return;
