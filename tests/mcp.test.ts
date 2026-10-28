@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { type AddressInfo } from 'node:net';
+import { request as httpRequest } from 'node:http';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { createHttpServer } from '../src/server/http.js';
 
@@ -18,6 +19,18 @@ async function withServer(work: (baseUrl: string) => Promise<void>) {
   }
 }
 
+// node:http allows an explicit Host override; fetch can normalize it.
+function statusWithHeaders(base: string, headers: Record<string, string>): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const request = httpRequest(base + '/health', { method: 'GET', headers }, response => {
+      response.resume();
+      response.on('end', () => resolve(response.statusCode ?? 0));
+    });
+    request.on('error', reject);
+    request.end();
+  });
+}
+
 test('health works, rejected host/origin, no GET MCP, no accidental public route', async () => {
   await withServer(async base => {
     const health = await fetch(base + '/health');
@@ -26,8 +39,8 @@ test('health works, rejected host/origin, no GET MCP, no accidental public route
 
     assert.equal((await fetch(base + '/mcp')).status, 405);
     assert.equal((await fetch(base + '/not-found')).status, 404);
-    assert.equal((await fetch(base + '/health', { headers: { Host: 'evil.example' } })).status, 403);
-    assert.equal((await fetch(base + '/health', { headers: { Origin: 'https://evil.example' } })).status, 403);
+    assert.equal(await statusWithHeaders(base, { Host: 'evil.example' }), 403);
+    assert.equal(await statusWithHeaders(base, { Origin: 'https://evil.example' }), 403);
   });
 });
 
