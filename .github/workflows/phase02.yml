@@ -1,4 +1,4 @@
-name: VPS-MCP security audit CI
+name: VPS-MCP security and private Compose CI
 on:
   push:
     branches: [main]
@@ -8,7 +8,7 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -18,3 +18,21 @@ jobs:
       - run: npm run check
       - run: npm audit --omit=dev --audit-level=high
       - run: npm audit --audit-level=high
+      - name: Automatic installer and Docker Compose smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'docker compose down --remove-orphans >/dev/null 2>&1 || true; rm -f .env "$RUNNER_TEMP/vpsmcp-install.log"' EXIT
+          bash scripts/install.sh >"$RUNNER_TEMP/vpsmcp-install.log" 2>&1
+          grep -q 'ONE-TIME FIRST-LOGIN SETUP' "$RUNNER_TEMP/vpsmcp-install.log"
+          test "$(stat -c '%a' .env)" = '600'
+          docker compose config --quiet
+          for i in {1..40}; do
+            if curl --fail --silent http://127.0.0.1:3000/health >/dev/null; then break; fi
+            sleep 2
+          done
+          curl --fail --silent http://127.0.0.1:3000/health
+          curl --fail --silent http://127.0.0.1:3000/api/setup/status | grep -q '"required":true'
+          test "$(docker compose exec -T api id -u | tr -d '\r')" = '10001'
+          docker compose exec -T api node -e "if(require('fs').existsSync('/var/run/docker.sock'))process.exit(1)"
+          test "$(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$(docker compose ps -q api)")" = 'true'

@@ -4,7 +4,7 @@ import { listenServer } from './server/http.js';
 async function main() {
   const config=loadConfig();
   const app=await listenServer(config);
-  process.stderr.write(`VPS-MCP Phase 03 listening on ${app.url} (public origin: ${config.origin})\n`);
+  process.stderr.write(`VPS-MCP listening on ${app.url} (public origin: ${config.origin})\n`);
   let stopping=false;
   const stop=async()=>{
     if(stopping)return;

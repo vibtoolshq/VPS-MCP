@@ -6,7 +6,7 @@
 | 02 | Read-only MCP core, validation, tests | Complete |
 | 03 | OAuth, login panel, HTTPS configuration, permissions and audit | Complete |
 | 04 | Scoped files/Docker/deploy tools, broker, write approval, tests | Implemented; CI verified |
-| 05 | Hardened production container, Compose, portable install/update/remove, VPS + ChatGPT verification | Not started |
+| 05 | Automatic private Compose install + first-login admin setup, then live VPS/HTTPS/ChatGPT verification | Private profile implemented; live verification pending |
 
 ## Phase 04 release gate
 
@@ -24,3 +24,7 @@ Phase 01–04 source code passed the final [forensic audit](FINAL-FORENSIC-AUDIT
 ## Next — Phase 05
 
 Harden broker permissions with least-privileged OS deployment, review Docker group risks, package a small Docker image, install services and persistent secret storage, provide start/stop/remove, verify behavior on the user's fresh Ubuntu VPS and connect to ChatGPT using HTTPS/OAuth. Existing notes and data must survive upgrades.
+
+## Private Docker profile
+
+The default private Compose stack and one-time setup installer are documented in [PHASE-05-PRIVATE-INSTALL.md](PHASE-05-PRIVATE-INSTALL.md). Docker/Git broker and public HTTPS remain disabled pending a least-privileged integration review.

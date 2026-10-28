@@ -1,6 +1,6 @@
-# VPS-MCP Security Policy — Phase 04
+# VPS-MCP Security Policy — Phase 05 Private Profile
 
-This is a **CI-tested implementation, not yet a hardened public production deployment**.
+This is a **CI-tested private Docker Compose profile, not yet a publicly tested or hardened production MCP deployment**. The installer generates a unique one-time setup token; anonymous default admin/password login is forbidden. The web container has no host Docker socket.
 
 ## Implemented safeguards
 

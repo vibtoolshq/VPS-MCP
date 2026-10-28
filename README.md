@@ -2,13 +2,27 @@
 
 A lightweight, portable **Node.js + TypeScript MCP server** with an OAuth-secured, permission-controlled API and a clean, responsive, login-verified web control panel. Intended for Ubuntu VPS management via compatible MCP clients.
 
-> **Phase 04 — implementation & CI verification.** Controlled workspace, Docker and Git deployment tools are added, with write access opt-in and gated by OAuth scope, admin approval and a separate local broker. **Docker/Compose packaging, VPS deployment and a live ChatGPT connection remain incomplete.** Do not expose this development build publicly.
+> **Phase 05 private deployment foundation:** An isolated, localhost-only Docker Compose stack with automatic `.env` and mandatory first-visit admin setup is implemented. Public HTTPS, privileged broker isolation and a live ChatGPT connection are **not** yet verified.
+
+## Zero-manual-env secure private installation
+
+From a fresh Ubuntu VPS with Docker/Compose installed:
+
+```bash
+bash scripts/install.sh
+```
+
+Installer-generated private `.env`, a one-time setup token and a persistent Docker volume are configured automatically. **The first browser visit requires setting a new admin username and a strong password.** The familiar starter example `admin / Pass@123` is shown in the UI but **never grants access**; the password must be changed before login. Access the panel through an SSH tunnel at `http://127.0.0.1:3000`.
+
+The default container is non-root/read-only, binds to host loopback only and does not mount a Docker socket or launch a privileged broker. **This private profile is not reachable by ChatGPT cloud connectors yet**; live public HTTPS/OAuth setup remains pending.
+
+See [Phase 05 Private Install Guide](docs/PHASE-05-PRIVATE-INSTALL.md). Stop/update/uninstall scripts retain your state.
 
 ## Final repository forensic audit
 
 The Phase 01–04 source code was re-audited before Phase 05. OAuth state persistence, refresh rotation, private state-file writes, symlink handling and tool resource-readiness are now covered by targeted tests. The final code CI passed **38/38 tests**, typecheck and build, with no npm high-severity advisories reported.
 
-**Public production deployment is not yet approved.** Docker/Compose remain intentionally non-deployable and broker isolation, HTTPS/OAuth live compatibility, backups and VPS operations must pass Phase 05 verification. See [Final Forensic Audit Report](docs/FINAL-FORENSIC-AUDIT-2026-10-28.md).
+**Public production deployment is not yet approved.** the private Docker/Compose deployment is now available, but public/privileged deployment remains unverified and broker isolation, HTTPS/OAuth live compatibility, backups and VPS operations must pass Phase 05 verification. See [Final Forensic Audit Report](docs/FINAL-FORENSIC-AUDIT-2026-10-28.md).
 
 ## Advanced access control panel
 
@@ -150,8 +164,8 @@ VPS-MCP/
 ├── .env.example
 ├── package.json
 ├── tsconfig.json
-├── Dockerfile       # intentionally not deployable until Phase 05
-└── compose.yaml     # intentionally empty until Phase 05
+├── Dockerfile       # non-root private runtime
+└── compose.yaml     # localhost-only isolated service
 ```
 
 ## Planned five phases
@@ -162,7 +176,7 @@ VPS-MCP/
 | 02 | Read-only MCP core & tests | Complete |
 | 03 | OAuth, permissions, audit, HTTPS support & compact verified-login UI | Implemented, CI checked |
 | 04 | Scoped files/Docker/Git tools, restricted broker, explicit approval, tests | Implemented, CI verified |
-| 05 | Hardened Docker build, Compose, installer, VPS verification and ChatGPT integration test | Not started |
+| 05 | Private Docker/Compose, auto installer, first-login setup; then live VPS/HTTPS/MCP verification | Private profile implemented; public integration pending |
 
 ## License
 
