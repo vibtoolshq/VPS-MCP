@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,readFile,symlink,writeFile} from 'node:fs/promises';
+import {mkdtemp,readFile,symlink,writeFile,mkdir,chmod} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {randomUUID,createHash} from 'node:crypto';
@@ -41,6 +41,11 @@ test('paths reject traversal, hidden files, symlinks and overwrites',async()=>{
   await assert.rejects(workspaceCreate(dir,'../escape','nope'));
   await symlink('/etc/passwd',path.join(dir,'link.txt'));
   await assert.rejects(workspaceRead(dir,'link.txt'));
+  const unsafe=path.join(dir,'unsafe');
+  await mkdir(unsafe,{mode:0o777});
+  await chmod(unsafe,0o777);
+  await assert.rejects(workspaceCreate(dir,'unsafe/nope.txt','nope'));
+  await assert.rejects(workspaceList(unsafe));
   await assert.rejects(workspaceCreate(dir,'link.txt','nope'));
   await writeFile(path.join(dir,'.secret'),'hidden');
   assert.equal((await workspaceList(dir)).entries.some(x=>x.name==='.secret'),false);

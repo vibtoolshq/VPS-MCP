@@ -19,14 +19,20 @@ export async function safePath(root:string, relative:string, opts:{rootAllowed?:
   if(!root || !path.isAbsolute(root))throw new Error('Workspace root is not configured');
   const components=validateRelative(relative,opts.rootAllowed);
   const base=await realpath(root);
-  if((await lstat(base)).isSymbolicLink())throw new Error('Symlink root forbidden');
+  if(path.resolve(root)!==base)throw new Error('Workspace root must not contain symlinks');
+  const rootStat=await lstat(base);
+  if(!rootStat.isDirectory() || (rootStat.mode & 0o022)!==0)
+    throw new Error('Workspace root must not be writable by group or others');
   let current=base;
   for(let i=0;i<components.length;i++){
     current=path.join(current,components[i]!);
     try{
       const s=await lstat(current);
       if(s.isSymbolicLink())throw new Error('Symlink path forbidden');
-      if(i<components.length-1 && !s.isDirectory())throw new Error('Parent is not a directory');
+      if(i<components.length-1) {
+        if(!s.isDirectory())throw new Error('Parent is not a directory');
+        if((s.mode & 0o022)!==0)throw new Error('Parent directory is writable by untrusted users');
+      }
     }catch(err){
       if(opts.missingLeaf && i===components.length-1 && (err as NodeJS.ErrnoException).code==='ENOENT')break;
       throw err;

@@ -131,7 +131,7 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
         const username=typeof input?.username==='string'?input.username:'';
         const password=typeof input?.password==='string'?input.password:'';
         const ip=req.socket.remoteAddress||'unknown';
-        const sid=sessions.login(username,password,ip);
+        const sid=await sessions.login(username,password,ip);
         audit.record('login',sid?'success':'denied',sid?username:'anonymous');
         if(!sid) return json(res,401,{error:'login_failed'});
         sessions.setCookie(res,sid);

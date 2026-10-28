@@ -1,4 +1,5 @@
-import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { randomBytes, scryptSync, scrypt, timingSafeEqual } from 'node:crypto';
+import { promisify } from 'node:util';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { AppConfig } from '../shared/config.js';
 
@@ -25,17 +26,28 @@ export function safeEqual(a: string, b: string): boolean {
   const right = Buffer.from(b);
   return left.length === right.length && timingSafeEqual(left, right);
 }
+const scryptAsync=promisify(scrypt);
+async function verifyPasswordNonBlocking(password:string,hash:string):Promise<boolean> {
+  try {
+    if(password.length>1024)return false;
+    const [salt,expected]=hash.split(':');
+    if(!salt||!expected)return false;
+    const candidate=await scryptAsync(password,Buffer.from(salt,'hex'),64,{maxmem:64*1024*1024});
+    return timingSafeEqual(candidate,Buffer.from(expected,'hex'));
+  }catch{return false;}
+}
 function token() { return randomBytes(32).toString('base64url'); }
 
 export class SessionManager {
   private sessions = new Map<string, Session>();
+  private activeVerifications=0;
   private failures = new Map<string, {count:number; until:number}>();
   private cookieName: string;
 
   constructor(private config: AppConfig) {
     this.cookieName = config.secureCookies ? '__Host-vpsmcp' : 'vpsmcp_local';
   }
-  login(username: string, password: string, address: string): string | null {
+  async login(username: string, password: string, address: string): Promise<string|null> {
     const now = Date.now();
     if(this.failures.size>1024) {
       for(const [key,value] of this.failures) if(value.until<=now)this.failures.delete(key);
@@ -43,8 +55,13 @@ export class SessionManager {
     }
     const attempted = this.failures.get(address);
     if (attempted && attempted.until > now && attempted.count >= MAX_FAILURES) return null;
-    // Always run scrypt even when username is invalid.
-    const verified = verifyPassword(password, this.config.ADMIN_PASSWORD_HASH);
+    // Never block the HTTP event loop with synchronous password verification.
+    // Limit concurrent 64 MiB scrypt tasks to avoid CPU/memory exhaustion.
+    if(this.activeVerifications>=4)return null;
+    this.activeVerifications++;
+    let verified=false;
+    try{verified=await verifyPasswordNonBlocking(password,this.config.ADMIN_PASSWORD_HASH);}
+    finally{this.activeVerifications--;}
     if (!safeEqual(username, this.config.ADMIN_USERNAME) || !verified) {
       const count = attempted && attempted.until > now ? attempted.count + 1 : 1;
       this.failures.set(address, {count, until: now + WINDOW});
