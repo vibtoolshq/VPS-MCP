@@ -316,3 +316,48 @@ test('successful network staging clears dirty state and does not claim live SSL'
  assert.match(h.elements.get('network-saved')!.textContent,/port change NOT applied/);
  assert.equal(h.elements.get('network-ssl-status')!.textContent,'Not installed (private mode)');
 });
+
+test('Cloudflare UI requires confirmation and clears provider token after connecting',async()=>{
+ const h=makeHarness();
+ h.responses.set('/api/session',{status:200,body:{csrf:'dns-ui-csrf'}});
+ h.responses.set('/api/status',{status:200,body:h.status});
+ h.responses.set('/api/dns/connect',{status:200,body:{ok:true}});
+ vm.runInContext(js,h.context);await h.flush();
+ h.elements.get('dns-zone-id')!.value='a'.repeat(32);
+ h.elements.get('dns-token')!.value='private-dns-test-token';
+ h.setConfirm(false);
+ await h.fire('dns-connect-form','submit');
+ assert.equal(h.calls.some(x=>x.url==='/api/dns/connect'),false);
+ h.setConfirm(true);
+ h.responses.set('/api/status',{status:200,body:{...h.status,
+   dnsProvider:{configured:true,provider:'cloudflare',zone:'example.org',recordsManaged:true}}});
+ await h.fire('dns-connect-form','submit');
+ const req=h.calls.find(x=>x.url==='/api/dns/connect');
+ assert.ok(req);
+ assert.equal((req.options.headers as Record<string,string>)['x-csrf-token'],'dns-ui-csrf');
+ assert.equal(h.elements.get('dns-token')!.value,'');
+ assert.equal(h.elements.get('dns-records-panel')!.hidden,false);
+});
+test('Cloudflare record actions require confirmation and carry CSRF',async()=>{
+ const h=makeHarness();
+ h.responses.set('/api/session',{status:200,body:{csrf:'dns-record-csrf'}});
+ h.responses.set('/api/status',{status:200,body:{...h.status,
+   dnsProvider:{configured:true,provider:'cloudflare',zone:'example.org',recordsManaged:true}}});
+ h.responses.set('/api/dns/records',{status:200,body:{zone:'example.org',
+   records:[{id:'b'.repeat(32),name:'www.example.org',type:'A',content:'203.0.113.1',ttl:300,proxied:false}]}});
+ h.responses.set('/api/dns/record',{status:200,body:{ok:true}});
+ vm.runInContext(js,h.context);await h.flush();
+ await h.fire('dns-refresh');
+ assert.equal(h.elements.get('dns-record-rows')!.childNodes.length,1);
+ h.elements.get('dns-type')!.value='A';h.elements.get('dns-name')!.value='api';
+ h.elements.get('dns-content')!.value='203.0.113.10';h.elements.get('dns-ttl')!.value='300';
+ h.setConfirm(false);
+ await h.fire('dns-record-form','submit');
+ assert.equal(h.calls.some(x=>x.url==='/api/dns/record'),false);
+ h.setConfirm(true);
+ await h.fire('dns-record-form','submit');
+ const req=h.calls.find(x=>x.url==='/api/dns/record');
+ assert.ok(req);
+ assert.match(String(req.options.body),/"action":"create"/);
+ assert.equal((req.options.headers as Record<string,string>)['x-csrf-token'],'dns-record-csrf');
+});
