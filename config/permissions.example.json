@@ -1,0 +1,14 @@
+{
+  "defaultPolicy": "deny",
+  "readOnlyTools": [
+    "system.status",
+    "filesystem.list",
+    "filesystem.read",
+    "docker.inspect",
+    "docker.logs"
+  ],
+  "writeToolsEnabled": false,
+  "allowedReadPaths": [],
+  "allowedWritePaths": [],
+  "notes": "Draft policy only; not enforced until implementation."
+}

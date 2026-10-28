@@ -1,0 +1,3 @@
+# SCAFFOLD ONLY: no runnable services yet.
+# A verified, hardened MCP container definition will be added in the deployment phase.
+services: {}
