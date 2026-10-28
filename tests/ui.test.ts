@@ -65,7 +65,14 @@ function makeHarness() {
       oauth:{clients:2,activeTokens:1},system:{cpuCount:2,totalMemoryBytes:4000000000,freeMemoryBytes:2500000000,uptimeSeconds:7200},
       writesEnabled:true,publicHttps:true,enrollmentSeconds:0,
       pendingApprovals:[{id:'approved-request',clientId:'testClient',summary:'Create file allowed.txt'}],
-      audit:[{at:'2026-10-28T12:00:00.000Z',action:'login',outcome:'success',actor:'admin'}]
+      audit:[{at:'2026-10-28T12:00:00.000Z',action:'login',outcome:'success',actor:'admin'}],
+      policy:{
+        writeConfigured:true,writePaused:false,writeGatePaused:false,
+        tools:[{name:'system_status',enabled:true,configured:true},{name:'docker_status',enabled:false,configured:false}],
+        actions:[{name:'file.create',enabled:true,configured:true},{name:'deploy.sync',enabled:false,configured:false}]
+      },
+      clients:[{id:'vpsmcp_'+'a'.repeat(43),name:'ChatGPT Test',redirectUris:['https://example.com/callback'],accessTokens:1,
+        scopes:{read:true,write:true},tools:[{name:'system_status',enabled:true,globalEnabled:true}]}]
     }
   };
 }
@@ -149,4 +156,32 @@ test('failed logout keeps the dashboard open and reports an error',async()=>{
   await h.fire('logout');
   assert.equal(h.elements.get('dashboard')!.hidden,false);
   assert.match(h.elements.get('notice')!.textContent,/sign out/i);
+});
+
+test('advanced console has scope toggles and enforces logged-in CSRF settings API',async()=>{
+  const h=makeHarness();
+  h.responses.set('/api/session',{status:200,body:{csrf:'scope-test-csrf'}});
+  h.responses.set('/api/status',{status:200,body:h.status});
+  h.responses.set('/api/control/tool',{status:200,body:{ok:true}});
+  h.responses.set('/api/control/client-scope',{status:200,body:{ok:true}});
+  vm.runInContext(js,h.context);
+  await h.flush();
+  assert.equal(h.elements.get('control-permissions')!.childNodes.length,2);
+  assert.equal(h.elements.get('client-list')!.childNodes.length,1);
+  const toolButton=h.elements.get('control-permissions')!.childNodes[0]!.childNodes[1]!;
+  h.setConfirm(false);
+  await toolButton.fire('click');
+  assert.equal(h.calls.some(x=>x.url==='/api/control/tool'),false);
+  h.setConfirm(true);
+  await toolButton.fire('click');
+  const toolCall=h.calls.find(x=>x.url==='/api/control/tool');
+  assert.ok(toolCall);
+  assert.equal((toolCall.options.headers as Record<string,string>)['x-csrf-token'],'scope-test-csrf');
+  const clientRow=h.elements.get('client-list')!.childNodes[0]!;
+  const clientScopes=clientRow.childNodes[2]!;
+  const readSwitch=clientScopes.childNodes[0]!.childNodes[1]!;
+  await readSwitch.fire('click');
+  const scopeCall=h.calls.find(x=>x.url==='/api/control/client-scope');
+  assert.ok(scopeCall);
+  assert.match(String(scopeCall.options.body),/vps:read/);
 });

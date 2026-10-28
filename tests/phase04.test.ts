@@ -204,6 +204,14 @@ test('advanced dashboard controls enforce CSRF, global and per-client permission
       const on=await api('/api/control/tool',{name:'system_status',enabled:true});
       assert.equal(on.status,200);
       assert.equal((await client.listTools()).tools.some(t=>t.name==='system_status'),true);
+      const scopeOff=await api('/api/control/client-scope',{clientId:client_id,scope:'vps:read',enabled:false});
+      assert.equal(scopeOff.status,200);
+      assert.equal((await client.listTools()).tools.length,0);
+      assert.equal((await api('/api/control/client-scope',{clientId:client_id,scope:'vps:read',enabled:true})).status,200);
+      assert.equal((await client.listTools()).tools.some(t=>t.name==='system_status'),true);
+      assert.equal((await api('/api/control/client-scope',{clientId:client_id,scope:'vps:write',enabled:false})).status,200);
+      assert.equal((await client.listTools()).tools.some(t=>t.name==='operation_request'),false);
+      assert.equal((await api('/api/control/client-scope',{clientId:client_id,scope:'vps:write',enabled:true})).status,200);
       const clientOff=await api('/api/control/client-tool',{clientId:client_id,name:'disk_usage',enabled:false});
       assert.equal(clientOff.status,200);
       assert.equal((await client.listTools()).tools.some(t=>t.name==='disk_usage'),false);

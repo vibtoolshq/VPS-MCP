@@ -203,6 +203,20 @@ function renderAdvanced(data){
     const detail=document.createElement('div');detail.className='client-detail';
     detail.textContent=asArray(client.redirectUris).join(', ')+' · '+(client.accessTokens||0)+' active access token(s)';
     record.append(detail);
+    const scopes=document.createElement('div');scopes.className='client-scopes';
+    for(const [scope,enabled,configured] of [
+      ['vps:read',client.scopes?.read!==false,true],
+      ['vps:write',client.scopes?.write===true,policy.writeConfigured===true]
+    ]){
+      scopes.append(settingRow(scope,scope==='vps:read'?'Master client read permission':'Maximum write permission; OAuth write consent and approvals still required.',
+        enabled,configured,async(button)=>{
+          if(!window.confirm((enabled?'Disable ':'Enable ')+scope+' policy for '+String(client.name||client.id)+'?'))return;
+          await runAction(button,()=>api('/api/control/client-scope',{method:'POST',
+            headers:{'content-type':'application/json','x-csrf-token':state.csrf},
+            body:JSON.stringify({clientId:client.id,scope,enabled:!enabled})}),'Client scope policy updated.');
+        }));
+    }
+    record.append(scopes);
     const details=document.createElement('details');details.className='client-tools';
     const summary=document.createElement('summary');summary.textContent='Configure tool permissions';
     details.append(summary);

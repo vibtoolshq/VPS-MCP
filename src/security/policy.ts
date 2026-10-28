@@ -1,4 +1,4 @@
-import {existsSync,statSync,readFileSync,mkdirSync,writeFileSync,renameSync} from 'node:fs';
+import {existsSync,lstatSync,readFileSync,mkdirSync,writeFileSync,renameSync} from 'node:fs';
 import path from 'node:path';
 import * as z from 'zod/v4';
 import type {AppConfig} from '../shared/config.js';
@@ -11,7 +11,9 @@ const schema=z.object({
   disabledTools:z.array(z.enum(VALID_TOOLS)).max(8),
   disabledActions:z.array(z.enum(ACTIONS)).max(3),
   writePaused:z.boolean(),
-  clientDisabledTools:z.record(z.string().regex(/^vpsmcp_[A-Za-z0-9_-]{20,80}$/),z.array(z.enum(VALID_TOOLS)).max(8))
+  clientDisabledTools:z.record(z.string().regex(/^vpsmcp_[A-Za-z0-9_-]{20,80}$/),z.array(z.enum(VALID_TOOLS)).max(8)),
+  clientReadDisabled:z.array(z.string().regex(/^vpsmcp_[A-Za-z0-9_-]{20,80}$/)).max(32).default([]),
+  clientWriteDisabled:z.array(z.string().regex(/^vpsmcp_[A-Za-z0-9_-]{20,80}$/)).max(32).default([])
 }).strict();
 type Stored=z.infer<typeof schema>;
 export class PolicyStore {
@@ -19,10 +21,10 @@ export class PolicyStore {
   constructor(private config:AppConfig) {
     const file=config.MCP_POLICY_FILE;
     if(existsSync(file)){
-      const mode=statSync(file);
+      const mode=lstatSync(file);
       if(!mode.isFile()||(mode.mode&0o077)!==0)throw Error('Policy file must be private');
       this.data=schema.parse(JSON.parse(readFileSync(file,'utf8')));
-    } else this.data={version:1,disabledTools:[],disabledActions:[],writePaused:false,clientDisabledTools:{}};
+    } else this.data={version:1,disabledTools:[],disabledActions:[],writePaused:false,clientDisabledTools:{},clientReadDisabled:[],clientWriteDisabled:[]};
   }
   private persist(next:Stored){
     const file=this.config.MCP_POLICY_FILE;
@@ -34,7 +36,10 @@ export class PolicyStore {
   }
   configuredTool(name:string){return this.config.allowedTools.includes(name);}
   toolAllowed(name:string,clientId?:string){
-    return this.configuredTool(name)&&!this.data.disabledTools.includes(name as typeof VALID_TOOLS[number])
+    return this.configuredTool(name)
+      && (!clientId || !this.data.clientReadDisabled.includes(clientId))
+      && (!clientId || !['operation_request','operation_execute'].includes(name)||!this.data.clientWriteDisabled.includes(clientId))
+      &&!this.data.disabledTools.includes(name as typeof VALID_TOOLS[number])
       && (!clientId || !(this.data.clientDisabledTools[clientId]||[]).includes(name as typeof VALID_TOOLS[number]))
       && (!['operation_request','operation_execute'].includes(name)||this.writesAllowed());
   }
@@ -52,9 +57,9 @@ export class PolicyStore {
   actionAllowed(action:Action){return this.writesAllowed()&&this.capabilityFor(action)&&!this.data.disabledActions.includes(action);}
   snapshot(){
     return {
-      writeConfigured:this.config.writesEnabled,writePaused:!this.writesAllowed(),
-      tools:this.config.allowedTools.map(name=>({name,enabled:this.toolAllowed(name),configured:true})),
-      actions:ACTIONS.map(name=>({name,configured:this.capabilityFor(name),enabled:this.actionAllowed(name)}))
+      writeConfigured:this.config.writesEnabled,writePaused:!this.writesAllowed(),writeGatePaused:this.data.writePaused,
+      tools:VALID_TOOLS.map(name=>({name,enabled:this.configuredTool(name)&&!this.data.disabledTools.includes(name),configured:this.configuredTool(name)})),
+      actions:ACTIONS.map(name=>({name,configured:this.capabilityFor(name),enabled:this.capabilityFor(name)&&!this.data.disabledActions.includes(name)}))
     };
   }
   setTool(name:string,enabled:boolean){
@@ -75,7 +80,27 @@ export class PolicyStore {
     this.persist({...this.data,writePaused:paused});
   }
   clientAllowedTools(id:string){
-    return this.config.allowedTools.map(name=>({name,enabled:this.toolAllowed(name,id),globalEnabled:this.toolAllowed(name)}));
+    return VALID_TOOLS.map(name=>({
+      name,
+      enabled:this.configuredTool(name)&&!this.data.disabledTools.includes(name)&&
+        !(this.data.clientDisabledTools[id]||[]).includes(name),
+      globalEnabled:this.configuredTool(name)&&!this.data.disabledTools.includes(name)
+    }));
+  }
+  clientScopes(id:string){
+    return {
+      read:!this.data.clientReadDisabled.includes(id),
+      write:this.config.writesEnabled && !this.data.clientReadDisabled.includes(id) && !this.data.clientWriteDisabled.includes(id)
+    };
+  }
+  setClientScope(id:string,scope:string,enabled:boolean){
+    if(!/^vpsmcp_[A-Za-z0-9_-]{20,80}$/.test(id))throw Error('Invalid client identifier');
+    if(scope!=='vps:read'&&scope!=='vps:write')throw Error('Unknown OAuth scope');
+    if(scope==='vps:write'&&!this.config.writesEnabled)throw Error('Write scope disabled in server');
+    const key=scope==='vps:read'?'clientReadDisabled':'clientWriteDisabled';
+    const current=new Set(this.data[key]);
+    if(enabled)current.delete(id);else current.add(id);
+    this.persist({...this.data,[key]:[...current]});
   }
   setClientTool(id:string,name:string,enabled:boolean){
     if(!this.configuredTool(name))throw Error('Unknown or forbidden tool');
@@ -90,6 +115,8 @@ export class PolicyStore {
   revokeClientPolicy(id:string){
     const clientDisabledTools={...this.data.clientDisabledTools};
     delete clientDisabledTools[id];
-    this.persist({...this.data,clientDisabledTools});
+    this.persist({...this.data,clientDisabledTools,
+      clientReadDisabled:this.data.clientReadDisabled.filter(x=>x!==id),
+      clientWriteDisabled:this.data.clientWriteDisabled.filter(x=>x!==id)});
   }
 }

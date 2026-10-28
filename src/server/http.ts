@@ -157,7 +157,7 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
           oauth:oauth.stats(), system:systemStatus(),publicHttps:config.secureCookies,
           audit:await audit.list(20),writesEnabled:config.writesEnabled,
           pendingApprovals:approvals.pending(), enrollmentSeconds:oauth.enrollment(),
-          policy:policy.snapshot(), clients:oauth.listClients().map(c=>({...c, tools:policy.clientAllowedTools(c.id)}))
+          policy:policy.snapshot(), clients:oauth.listClients().map(c=>({...c, scopes:policy.clientScopes(c.id), tools:policy.clientAllowedTools(c.id)}))
         });
       }
       if(path==='/api/mcp' && req.method==='POST'){
@@ -195,6 +195,12 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
             if(!oauth.hasClient(payload.clientId))throw Error('Unknown client');
             await audit.recordDurable('panel.status','success',session.username,'client-tool.'+payload.name);
             policy.setClientTool(payload.clientId,payload.name,payload.enabled);
+           }else if(path==='/api/control/client-scope'){
+            if(typeof payload.clientId!=='string'||typeof payload.scope!=='string'||typeof payload.enabled!=='boolean')
+              throw Error('Invalid scope setting');
+            if(!oauth.hasClient(payload.clientId))throw Error('Unknown client');
+            await audit.recordDurable('panel.status','success',session.username,'client-scope');
+            policy.setClientScope(payload.clientId,payload.scope,payload.enabled);
           }else if(path==='/api/control/revoke-client'){
             if(typeof payload.clientId!=='string'||!oauth.hasClient(payload.clientId))throw Error('Unknown client');
             await audit.recordDurable('oauth.refresh','success',session.username,'client-revoked');

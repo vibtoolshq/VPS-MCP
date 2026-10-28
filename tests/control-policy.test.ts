@@ -72,3 +72,20 @@ test('policy files reject untrusted permission bits and corrupt data',async()=>{
  await writeFile(cfg.MCP_POLICY_FILE,'{"version":2}');
  assert.throws(()=>new PolicyStore(cfg));
 });
+
+test('per-client read/write scopes restrict all tools and survive restart',async()=>{
+ const {cfg}=await fixture();
+ const client='vpsmcp_'+'c'.repeat(43);
+ const store=new PolicyStore(cfg);
+ store.setClientScope(client,'vps:read',false);
+ assert.equal(store.toolAllowed('system_status',client),false);
+ assert.equal(store.toolAllowed('operation_request',client),false);
+ store.setClientScope(client,'vps:read',true);
+ store.setClientScope(client,'vps:write',false);
+ assert.equal(store.toolAllowed('system_status',client),true);
+ assert.equal(store.toolAllowed('operation_request',client),false);
+ assert.equal(new PolicyStore(cfg).clientScopes(client).write,false);
+ store.setClientScope(client,'vps:write',true);
+ assert.equal(store.toolAllowed('operation_request',client),true);
+ assert.throws(()=>store.setClientScope(client,'vps:admin',true),/Unknown OAuth scope/);
+});
