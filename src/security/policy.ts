@@ -39,7 +39,13 @@ export class PolicyStore {
       if(existsSync(temp))unlinkSync(temp);
     }
   }
-  configuredTool(name:string){return this.config.allowedTools.includes(name);}
+  configuredTool(name:string){
+    if(!this.config.allowedTools.includes(name))return false;
+    if(name==='workspace_list'||name==='workspace_read')return !!this.config.MCP_READ_ROOT;
+    if(name==='docker_status')return !!this.config.MCP_DOCKER_CONTAINERS.trim();
+    if(name==='deployment_status')return !!this.config.MCP_DEPLOY_REPO;
+    return true;
+  }
   clientReadAllowed(id:string){return !this.data.clientReadDisabled.includes(id);}
   clientWriteAllowed(id:string){return this.clientReadAllowed(id) && !this.data.clientWriteDisabled.includes(id);}
   toolAllowed(name:string,clientId?:string){

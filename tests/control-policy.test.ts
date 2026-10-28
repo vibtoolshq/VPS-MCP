@@ -124,3 +124,19 @@ test('client policy capacity fails closed',async()=>{
  assert.throws(()=>store.setClientScope('vpsmcp_'+'z'.repeat(43),'vps:read',false),/capacity/);
  assert.equal(new PolicyStore(cfg).clientScopes('vpsmcp_'+'z'.repeat(43)).read,true);
 });
+
+test('tool is not operational merely because its name appears in the env allowlist',async()=>{
+ const {cfg}=await fixture();
+ const sparse={...cfg,MCP_READ_ROOT:'',MCP_DOCKER_CONTAINERS:'',MCP_DEPLOY_REPO:'',allowedTools:[
+   ...cfg.allowedTools,'docker_status','deployment_status'
+ ]};
+ const policy=new PolicyStore(sparse);
+ for(const name of ['workspace_list','docker_status','deployment_status']){
+   const item=policy.snapshot().tools.find(v=>v.name===name);
+   assert.equal(item?.configured,false);
+   assert.equal(item?.enabled,false);
+   assert.equal(policy.toolAllowed(name),false);
+   assert.throws(()=>policy.setTool(name,true),/not present/);
+ }
+ assert.equal(policy.toolAllowed('system_status'),true);
+});

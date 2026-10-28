@@ -199,30 +199,30 @@ export class OAuthService {
     }
     if(grant==='refresh_token') {
       const token=fields.get('refresh_token')||'';
-      const entry=this.refresh.get(digest(token));
-      if(entry){
-        // Consume durably before acknowledging refresh. If disk persistence fails,
-        // do not mutate the in-memory token or issue a new pair.
-        this.persistSnapshot([...this.clients.values()],
-          [...this.refresh.entries()].filter(([hash])=>hash!==digest(token)));
-        this.refresh.delete(digest(token));
-      }
+      const oldHash=digest(token);
+      const entry=this.refresh.get(oldHash);
       if(!entry || entry.clientId!==clientId || (fields.get('resource') && fields.get('resource')!==entry.resource)) {
         throw new OAuthError('invalid_grant');
       }
-      return this.issue(clientId,entry.scope,entry.resource);
+      // Rotate in one durable write: old token removal and new token creation
+      // succeed together, or the old credential remains valid for retry.
+      return this.issue(clientId,entry.scope,entry.resource,oldHash);
     }
     throw new OAuthError('unsupported_grant_type');
   }
-  private issue(clientId:string,scope:string,resource:string){
+  private issue(clientId:string,scope:string,resource:string,replacedRefresh?:string){
     this.cleanup();
-    if(this.access.size>=OAuthService.MAX_ACTIVE || this.refresh.size>=OAuthService.MAX_REFRESH)
+    if(this.access.size>=OAuthService.MAX_ACTIVE ||
+      (this.refresh.size>=OAuthService.MAX_REFRESH && !replacedRefresh))
       throw new OAuthError('token_capacity_reached',503);
     const access=random(), refresh=random();
     const identity:AccessIdentity={clientId,scope,resource,expires:Date.now()+60*60_000};
-    const refreshClaim={...identity,until:Date.now()+30*24*60*60_000};
-    this.persistSnapshot([...this.clients.values()],
-      [...this.refresh.entries(),[digest(refresh),refreshClaim]]);
+    const refreshClaim:Refresh={...identity,until:Date.now()+30*24*60*60_000};
+    const nextRefresh:[string,Refresh][]=[...this.refresh.entries()]
+      .filter(([hash])=>hash!==replacedRefresh);
+    nextRefresh.push([digest(refresh),refreshClaim]);
+    this.persistSnapshot([...this.clients.values()],nextRefresh);
+    if(replacedRefresh)this.refresh.delete(replacedRefresh);
     this.access.set(digest(access),identity);
     this.refresh.set(digest(refresh),refreshClaim);
     return {access_token:access,token_type:'Bearer',expires_in:3600,refresh_token:refresh,scope};
