@@ -1,14 +1,18 @@
 {
+  "note": "Illustrative policy only; the running app currently reads environment variables, NOT this JSON file.",
   "defaultPolicy": "deny",
-  "readOnlyTools": [
-    "system.status",
-    "filesystem.list",
-    "filesystem.read",
-    "docker.inspect",
-    "docker.logs"
+  "MCP_ALLOWED_TOOLS": "system_status,disk_usage",
+  "MCP_ENABLE_WRITES": "false",
+  "MCP_ALLOW_GIT_SYNC": "false",
+  "MCP_READ_ROOT": "",
+  "MCP_WRITE_ROOT": "",
+  "MCP_DOCKER_CONTAINERS": "",
+  "MCP_DEPLOY_REPO": "",
+  "MCP_DEPLOY_BRANCH": "main",
+  "writeOperationTypes": [
+    "file.create",
+    "docker.restart",
+    "deploy.sync"
   ],
-  "writeToolsEnabled": false,
-  "allowedReadPaths": [],
-  "allowedWritePaths": [],
-  "notes": "Draft policy only; not enforced until implementation."
+  "warning": "Enable writes only with a separate restricted broker and explicit per-operation admin approval."
 }

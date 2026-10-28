@@ -1,45 +1,44 @@
-# Phase 03 Architecture
+# VPS-MCP Phase 04 Architecture
 
 ```text
-MCP client (ChatGPT-compatible)        Admin browser
-           |                                 |
-    HTTPS / secure tunnel            HTTPS / local
-           |                                 |
-           +------------ Node HTTP(S) ------+
-                                 |
-                     Host / Origin checks
-                      |             |
-         OAuth bearer gate        Admin session
-                |                 login + CSRF
-           /mcp handler                 |
-                |                  Compact panel
-           vps:read scope          status / controls
-                |
-          SDK tool handlers
-           /          \
-  system_status     disk_usage
+ChatGPT / MCP client                    Verified admin browser
+OAuth vps:read / optional vps:write      Session + CSRF
+           |                                      |
+           |  HTTPS / local service               |
+           +--------- MCP HTTP application -------+
+                         |               |
+              scoped tool context   Pending approvals
+                         |               |
+                read-only tools     Admin approve/deny
+                         |
+                  write proposals
+                         |
+               exact approved operation
+                         |
+             private Unix domain socket
+                   + shared secret
+                         |
+               Separate restricted broker
+                  /      |       \
+       file.create  docker.restart  deploy.sync
+       private root  allowlisted     trusted repo,
+                     container      branch, opt-in
 ```
 
-## Auth boundary
+## Security boundaries
 
-- `/mcp`: every request must supply an unexpired opaque bearer access token scoped `vps:read` and bound to exactly the configured MCP resource audience.
-- OAuth server: discovery metadata, exact callback allowlist for Dynamic Client Registration, S256 PKCE challenge verified during single-use code exchange; rotating refresh tokens and token revocation.
-- Web dashboard: separate scrypt password verification + HttpOnly SameSite session cookie + CSRF verification for state-changing actions.
-- Deny-by-default tool registration: only configured allowlisted read-only operations are exported.
-- Audit: actions/outcomes and bounded actor names, no raw credentials/request bodies.
+MCP client tokens require `vps:read`; `vps:write` is additional and only available when explicitly enabled. Read tools appear only in `MCP_ALLOWED_TOOLS`. Approval tools are registered only with the write flag, broker configuration and both tool names. An operation is fixed when proposed; the client cannot alter payload during execution. The panel displays a summary and requires a logged-in admin + CSRF token. Approved operations are consumed once before dispatch.
 
-## Network options
+The server **never opens the Docker daemon socket**. It delegates a strictly enumerated operation to a separate process over an OS-protected Unix socket using a secret. Broker operations are revalidated and use `execFile` with an explicit argument array and no shell. The broker must be launched under a separately restricted OS service identity in Phase 05.
 
-Local mode uses `127.0.0.1` and HTTP. A public listener requires native HTTPS certificate/key, host validation and origin configuration. A local-only listener can also sit behind a trusted HTTPS gateway/tunnel; configure the canonical external URL for OAuth resource and cookies.
+## Filesystem policy
 
-Dockerfile and Compose remain disabled until Phase 05 packaging/security validation. No Docker access is granted to MCP itself in Phase 03.
+User-controlled paths must be relative and cannot include hidden path components, `..`, symlinks or a leading slash. Read limit 64 KiB; create limit 16 KiB, exclusive creation mode `0600`, no overwrite. The workspace directory must not be writable by untrusted local users, because path traversal checks alone do not guarantee race-free access against a malicious local writer.
 
-## Storage
+## Docker and deployment policies
 
-- `data/audit.jsonl` appends sanitized JSON events; 0600 on creation.
-- `data/oauth-state.json` persists OAuth client records and hashed refresh tokens; 0600 on creation, atomically replaced.
-- Sessions, authorization codes and short-lived access tokens remain in memory.
+Docker status reports only allowlisted container state, not environment variables, secrets or full inspect payloads. Docker restart is limited to explicit container names. Git status reports a revision and dirty-file count; sync is disabled unless an extra opt-in is provided. `git pull --ff-only` has no arbitrary client-provided arguments, but repository configuration or malicious source code still poses risk: use only trusted repositories and a minimally privileged service identity.
 
-## Threat / trust boundaries
+## Deployment state
 
-Only an authenticated administrator can approve OAuth clients; client registration alone does not authorize a tool. Exact redirect allowlist reduces callback abuse. Admin and MCP operations use different credentials and paths. Reverse proxies must not expose local endpoints without TLS and correct Host validation.
+Production Dockerfile/Compose still deliberately disabled. Running a development broker with production Docker permissions is not the approved release configuration. Phase 05: restricted OS user/groups, sockets, ACLs, production container profiles, install/stop/update/uninstall and live tests.

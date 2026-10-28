@@ -1,21 +1,22 @@
-# VPS-MCP Roadmap (five phases)
+# VPS-MCP — Five-Phase Roadmap
 
-| Phase | Scope | State |
-|---|---|---|
-| 01 | Structure, README, architecture and security design | Complete |
-| 02 | Read-only MCP core, Streamable HTTP, status tools and tests | Complete |
-| 03 | OAuth authorization code/PKCE, verified admin login, allowlisted permissions, audit, HTTPS support and compact control UI | Implemented; CI must pass |
-| 04 | Controlled filesystem/Docker/deployment operations, isolated broker, approvals and negative tests | Not started |
-| 05 | Small hardened Docker image, Compose, reusable installer/stop/uninstall, fresh Ubuntu VPS and real ChatGPT connection testing | Not started |
+| Phase | Scope | Status |
+| --- | --- | --- |
+| 01 | Project scaffold and documentation | Complete |
+| 02 | Read-only MCP core, validation, tests | Complete |
+| 03 | OAuth, login panel, HTTPS configuration, permissions and audit | Complete |
+| 04 | Scoped files/Docker/deploy tools, broker, write approval, tests | Implemented; CI verified |
+| 05 | Hardened production container, Compose, portable install/update/remove, VPS + ChatGPT verification | Not started |
 
-## Phase 03 gates
+## Phase 04 release gate
 
-- TypeScript check + build
-- Unit and protocol tests: credential checks, Host/Origin, OAuth discovery, callback allowlist, authorization code flow, refresh rotation, signed-in admin/CSRF, permission and kill switch
-- No host shell, file write or Docker privilege
-- Read-only state persists in disk storage where appropriate
-- Scope clearly distinguishes CI validation from real VPS/ChatGPT integration
+- `npm run check` (typecheck, tests, build) passes in GitHub Actions.
+- No unrestricted shell interface.
+- No Docker socket in MCP web application.
+- Only configured workspaces, allowlisted container names and repository are permitted.
+- OAuth read scope alone cannot trigger writes; write scope, admin consent, panel approval and broker required.
+- Replay/cross-client/CSRF and unsafe path tests pass.
 
-## Future operations
+## Next — Phase 05
 
-Do not reconfigure an existing VPS, public firewall, DNS or ChatGPT connection in Phase 03. Phase 04 focuses on constrained operations; Phase 05 delivers deployment and verification. 
+Harden broker permissions with least-privileged OS deployment, review Docker group risks, package a small Docker image, install services and persistent secret storage, provide start/stop/remove, verify behavior on the user's fresh Ubuntu VPS and connect to ChatGPT using HTTPS/OAuth. Existing notes and data must survive upgrades.

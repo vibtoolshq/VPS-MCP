@@ -1,30 +1,34 @@
-# Security design and Phase 03 restrictions
+# VPS-MCP Security Policy — Phase 04
 
-## Implemented
+This is a **CI-tested implementation, not yet a hardened public production deployment**.
 
-- **OAuth:** metadata discovery, PKCE-S256 single-use authorization codes, rotating refresh tokens, token audience + expiry + scope check; exact registered callback allowlist.
-- **Admin login:** password scrypt hash; no plaintext password in repository; failure throttling; HttpOnly SameSite cookie, Secure attribute when behind HTTPS; short-lived in-memory sessions; CSRF on control mutations.
-- **Transport:** localhost binding by default. Non-loopback binding requires native TLS certificate/key plus public HTTPS origin. Origin and Host checks, strict CSP, no CORS exposure and no-store security headers.
-- **Tool permissions:** allowlist permits only `system_status` and `disk_usage`, with exact disk-path validation. No Docker socket, arbitrary shell, privileged tools, write actions or file-read endpoint.
-- **Audit:** allowlisted event categories, bounded sanitized actor/detail, JSONL without credentials or request payloads.
-- **Kill switch:** authenticated CSRF-protected panel action can reject all MCP API requests while keeping admin login available.
+## Implemented safeguards
 
-## Known boundaries / hardening still required
+- OAuth authorization-code + PKCE, audience/scope validation, refresh token rotation; exact callback URI registration allowlist.
+- Admin verified login, scrypt hashed password, HttpOnly SameSite/Secure cookies, CSRF and login throttling.
+- HTTPS guard for non-loopback listeners, Host/Origin verification, restrictive browser security headers.
+- Default-deny tool allowlist. `vps:write` scope only when explicitly enabled. Each write operation requires one logged-in admin approval, a single-use approval ID and an active broker.
+- Broker uses private Unix-domain socket (not public network) plus secret. It revalidates every action, path/container/repo target, and runs fixed commands with `execFile`, never a shell string.
+- Files are confined to a configured workspace; hidden paths, symlinks and traversal rejected; writes are create-only / no-overwrite / 0600.
+- Docker host socket is not mounted in or accessed by the HTTP MCP process.
+- Git synchronization is disabled separately by default; only a fixed repository, branch, trusted remote and fast-forward-only pull are supported.
+- Sanitized audit events for authorization, approvals, executions and MCP activity.
 
-This is **not a claim of production-ready hardening**. Do not deploy to the public internet without further review:
-- Public OAuth register/token endpoints have basic per-IP rate limiting; stronger distributed abuse controls and resource quotas are still needed.
-- Short-lived access tokens and admin sessions are memory-only; refresh token hashes and client registrations persist in a local 0600 file.
-- Audit logs are append-only locally, without centralized tamper resistance or rotation.
-- Remote live ChatGPT callback and TLS certificate renewal are untested.
-- Native HTTPS key permissions, reverse proxy trust and VPS firewall must be configured correctly.
-- Phase 05 will package the application as a hardened non-root container and verify remote operations.
+## Safety-critical caveats
 
-For remote deployment, enforce modern HTTPS and firewall limits. Configure exact ChatGPT redirect URI from the target connection; do not assume all ChatGPT plans permit every MCP feature.
+- **Docker group access is effectively root-equivalent.** Running the broker with Docker daemon permissions has serious implications; use a constrained proxy and separate OS identity before production, with only approved containers.
+- **Unix socket + shared secret is not an independent admin-approval authority.** A compromised HTTP service holding the secret could bypass its approval UI and directly request allowlisted broker operations. Run the broker with the least capabilities possible; Phase 05 must review isolation, token boundaries and permission separation.
+- A filesystem writable by an untrusted local process can change between path validation and write (TOCTOU). Use a private workspace owned by the broker identity; more robust openat-style protections may be required.
+- `deploy.sync` runs Git inside a trusted repository; Git config/filters and downloaded content can present code execution risks even if client input is fixed. Do not enable it for untrusted repositories. Build/restart are not automatically chained to sync.
+- CI does not exercise real Docker restarts or real Git sync on a VPS. No live ChatGPT connection has been verified.
+- Audit JSONL is local, not tamper-evident or rotated. Approval state, access tokens and sessions reset on restart; OAuth clients/refresh hashes persist.
+- Broker requests can be initiated by any local process with both socket access and secret; do not share credentials or socket permissions beyond trusted service identities.
+- Stronger rate limits, independent review, fail-closed deployment controls and production TLS/proxy hardening remain for Phase 05.
 
-## Secret rules
+## Secrets
 
-Never commit `.env`, `data/`, private keys, password hashes from a real deployment, OAuth access/refresh tokens, session cookies or registration secrets. Rotate admin credentials and revoke affected clients if compromised. API credentials do **not** belong in URL query strings.
+Do not commit `.env`, broker secret, private keys, passwords, OAuth codes/tokens or populated data files. Use random secrets with at least 32 characters and restricted file permissions. Revoke affected credentials after any compromise.
 
 ## Reporting
 
-Disclose security problems privately to maintainers, not through public issues with secrets.
+Report exploitable issues privately to maintainers without publishing credentials or sensitive details.

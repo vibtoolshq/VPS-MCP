@@ -1,8 +1,8 @@
 # VPS-MCP
 
-A lightweight, portable **Node.js + TypeScript MCP server** with an OAuth-enabled read-only API and a clean, responsive, login-verified web control panel. Intended for Ubuntu VPS management via compatible MCP clients.
+A lightweight, portable **Node.js + TypeScript MCP server** with an OAuth-secured, permission-controlled API and a clean, responsive, login-verified web control panel. Intended for Ubuntu VPS management via compatible MCP clients.
 
-> **Phase 03 — implementation & CI verification.** OAuth 2.1 authorization-code/PKCE, admin login, HTTPS configuration, read-only MCP permissions, audit log and control panel are implemented. **Docker/Compose packaging, VPS deployment and a live ChatGPT connection are NOT completed.** Never expose an untested build to the internet.
+> **Phase 04 — implementation & CI verification.** Controlled workspace, Docker and Git deployment tools are added, with write access opt-in and gated by OAuth scope, admin approval and a separate local broker. **Docker/Compose packaging, VPS deployment and a live ChatGPT connection remain incomplete.** Do not expose this development build publicly.
 
 ## Included in Phase 03
 
@@ -10,10 +10,46 @@ A lightweight, portable **Node.js + TypeScript MCP server** with an OAuth-enable
 - OAuth authorization server discovery, protected-resource metadata, dynamic client registration restricted to a configured exact redirect-URI allowlist, authorization code + PKCE-S256, access token and rotating refresh token.
 - Small HTML/CSS/vanilla-JS dashboard. Admin password verified with scrypt; HttpOnly SameSite cookie, secure cookie over HTTPS, CSRF-protected controls, login failure throttling.
 - Dashboard overview: MCP enable/disable switch, tool allowlist, system metrics, registered clients, active token counts, recent audit entries and logout.
-- `vps:read` scope gate on every MCP HTTP request; the two existing tools remain **read-only**: `system_status`, `disk_usage`.
-- No external shell execution, no file modifications, no Docker socket, no privilege escalation.
+- `vps:read` scope gate on every MCP HTTP request; the two original system tools remain read-only. Optional `vps:write` scope and single-use approval gates are introduced in Phase 04.
+- No arbitrary shell execution or Docker daemon socket in the MCP HTTP process. Phase 04 adds limited, explicitly approved broker operations.
 - Config requires a native TLS certificate/key to bind publicly. For an HTTPS tunnel/reverse proxy, bind only to loopback and declare its externally accessible HTTPS origin.
 - Audit JSONL with redacted/fixed event fields; client IDs and hashed rotating refresh tokens persisted in a gitignored 0600 state file. Admin sessions reset on restart.
+
+## Phase 04 — Controlled operations
+
+The existing **compact, login-verified dark UI** is preserved. A small Pending Approvals section lets the admin approve or deny one operation at a time. Approved operations expire after 5 minutes and are single-use.
+
+| MCP tool | Capability | Gate |
+| --- | --- | --- |
+| `system_status`, `disk_usage` | Existing system checks | OAuth `vps:read` |
+| `workspace_list`, `workspace_read` | Limited list/read within an explicit workspace | Tool allowlist + read root |
+| `docker_status` | Sanitized status of an allowed container | Tool allowlist + restricted broker |
+| `deployment_status` | Revision + dirty-file count for a fixed repo | Tool allowlist + restricted broker |
+| `operation_request` | Propose create-only file, container restart or Git sync | OAuth `vps:write`, write flag |
+| `operation_execute` | Execute that *exact* operation after panel approval | One-time approval + broker |
+
+**Default remains read-only.** The write tools are disabled unless `MCP_ENABLE_WRITES=true`, both approval tools are explicitly permitted in `MCP_ALLOWED_TOOLS`, the client has `vps:read vps:write`, the logged-in admin approves through CSRF-protected UI and the broker is reachable.
+
+### Broker separation
+
+`src/broker/` provides a Unix-socket server with a private socket path, 32+ character shared secret, structured command validation and resource allowlists. It does not accept freeform shell strings. File creation is exclusive and limited to a configured workspace (max 16 KiB). Container restart is limited to named containers. Git sync is **further disabled** unless `MCP_ALLOW_GIT_SYNC=true` and a trusted Git repo/branch is configured.
+
+Example **development-only** config, after the local admin hash has been generated:
+
+```dotenv
+MCP_HOST=127.0.0.1
+MCP_ALLOWED_TOOLS=system_status,disk_usage,workspace_list,workspace_read,operation_request,operation_execute
+MCP_ENABLE_WRITES=true
+MCP_READ_ROOT=/absolute/private/workspace
+MCP_WRITE_ROOT=/absolute/private/workspace
+MCP_BROKER_SOCKET=/absolute/private/run/broker.sock
+MCP_BROKER_SECRET=<unique-32-plus-character-random-secret>
+MCP_ALLOW_GIT_SYNC=false
+```
+
+For separately run services, launch `npm run broker` using a dedicated restricted OS identity and `npm run dev` under a separate unprivileged account with access to the socket. The socket **parent directory must be private (0700)**; configure controlled OS group/ACL access during Phase 05. Avoid giving the web application Docker daemon access. **Do not use the example directly in a production environment.**
+
+**Risk warning:** Membership in the Docker group is effectively root-equivalent; a separate broker alone is not a sufficient production sandbox. Production broker isolation, TLS and VPS verification are Phase 05 work. See [Phase 04 Status](docs/PHASE-04-STATUS.md) and [Security](docs/SECURITY.md).
 
 ## Requirements
 
@@ -48,6 +84,7 @@ Useful paths:
 | `/health` | Minimal public health check |
 | `/api/session`, `/api/status` | Admin session only |
 | `/api/mcp` | Admin session + CSRF, temporary MCP kill switch |
+| `/api/approval` | Admin session + CSRF, approve/deny one pending operation |
 | `/mcp` | OAuth bearer token with `vps:read` |
 | `/.well-known/oauth-protected-resource` | OAuth protected resource discovery |
 | `/.well-known/oauth-authorization-server` | OAuth AS metadata |
@@ -60,7 +97,7 @@ Two possible HTTPS arrangements:
 1. **Native HTTPS**: `MCP_HOST=0.0.0.0` + `MCP_PUBLIC_URL=https://your-hostname[:port]` + cert/key paths. Bind only after access controls, DNS, TLS and firewall review.
 2. **Loopback + trusted HTTPS reverse proxy/tunnel**: keep `MCP_HOST=127.0.0.1`; set `MCP_PUBLIC_URL=https://your-hostname`. Terminate TLS at the trusted gateway and forward to the loopback service; preserve the correct external Host value.
 
-In either case, put the **exact redirect URI** from the ChatGPT connection UI into `OAUTH_ALLOWED_REDIRECT_URIS`. ChatGPT generally requires OAuth rather than a manually supplied static API key. The user must log into the panel and explicitly approve read-only access during OAuth authorization. <https://developers.openai.com/plugins/build/auth>
+In either case, put the **exact redirect URI** from the ChatGPT connection UI into `OAUTH_ALLOWED_REDIRECT_URIS`. ChatGPT generally requires OAuth rather than a manually supplied static API key. The user must log into the panel and explicitly approve the requested read/write scope during OAuth authorization. <https://developers.openai.com/plugins/build/auth>
 
 **Do not paste tokens, passwords, OAuth codes, admin hashes or `.env` contents into ChatGPT conversations or GitHub.** Do not enable arbitrary unauthenticated tunnels.
 
@@ -75,11 +112,12 @@ VPS-MCP/
 ├── src/
 │   ├── index.ts
 │   ├── server/{http.ts,mcp.ts}
-│   ├── security/{authentication.ts,oauth.ts,authorization.ts,audit.ts}
+│   ├── security/{authentication.ts,oauth.ts,authorization.ts,audit.ts,approvals.ts}
 │   ├── tools/{system.ts,filesystem.ts,docker.ts,deployment.ts}
+│   ├── broker/{client.ts,server.ts,protocol.ts,main.ts}
 │   └── shared/config.ts
 ├── config/permissions.example.json
-├── tests/{config.test.ts,mcp.test.ts}
+├── tests/{config.test.ts,mcp.test.ts,persistence.test.ts,phase04.test.ts}
 ├── scripts/hash-password.mjs
 ├── docs/{ARCHITECTURE.md,SECURITY.md,ROADMAP.md}
 ├── .env.example
@@ -96,7 +134,7 @@ VPS-MCP/
 | 01 | Structure & documentation | Complete |
 | 02 | Read-only MCP core & tests | Complete |
 | 03 | OAuth, permissions, audit, HTTPS support & compact verified-login UI | Implemented, CI checked |
-| 04 | Optional limited files/Docker/deployment operations | Not started |
+| 04 | Scoped files/Docker/Git tools, restricted broker, explicit approval, tests | Implemented, CI verified |
 | 05 | Hardened Docker build, Compose, installer, VPS verification and ChatGPT integration test | Not started |
 
 ## License
