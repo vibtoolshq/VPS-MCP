@@ -75,3 +75,7 @@ If `.env` is deleted while its Docker data volume remains, `install.sh` refuses 
 The dashboard is now organized into seven compact sidebar pages; **Domain & SSL** can stage a validated domain, a future HTTPS plan, and private Docker host port (default 3000). DNS checking is read-only. Saving does **not** apply public DNS, SSL or Docker changes.
 
 To apply **only** a new private host port, sign in over SSH and run `sudo bash scripts/apply-network.sh`. It updates `.env` `MCP_BIND_PORT`, verifies health and rolls back on failure. Reconnect your local SSH tunnel with laptop source port 3000 and the selected VPS destination port. Details: [Control Panel & Network Guide](CONTROL-PANEL-NETWORK.md).
+
+## 7. Latest network UI forensic audit
+
+See [Sidebar & Network Forensic Audit](SIDEBAR-NETWORK-FORENSIC-AUDIT-2026-10-28.md). Private port applies require `flock` on the VPS host; the installer does not open public ports. A saved draft is not a live DNS, HTTPS or Docker change.

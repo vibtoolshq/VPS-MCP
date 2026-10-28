@@ -337,6 +337,10 @@ Therefore you **cannot turn on Docker restart, Git sync, unrestricted terminal, 
 
 Code for the separately restricted broker exists under `src/broker/`, but the default Compose **does not launch it**. Do not attach `/var/run/docker.sock` to the API container to make locked features appear functional.
 
+### Latest sidebar/network forensic audit
+
+The Domain & SSL draft workflow has been audited for unsaved-input loss, stale DNS results, storage/audit error states and concurrent private-port changes. The host port apply flow is now exercised on a disposable Docker CI runner. See the [Sidebar & Network Forensic Audit](docs/SIDEBAR-NETWORK-FORENSIC-AUDIT-2026-10-28.md). The web panel still **does not** automatically issue SSL certificates or edit DNS records.
+
 ### New: Compact sidebar Control Console
 
 The logged-in dashboard is now split into **seven lightweight, focused pages**, rather than one long page: **Overview, Tool access, Operations, Clients, Approvals, Domain & SSL, Security audit**. All seven stay inside the same authenticated panel, with a compact sticky sidebar on desktop and a horizontal, scrollable menu on narrow screens. No frontend framework or page reload is needed.

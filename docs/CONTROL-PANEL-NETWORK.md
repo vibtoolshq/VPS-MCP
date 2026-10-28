@@ -68,3 +68,7 @@ The settings draft resides in the private Docker volume at `/data/network-draft.
 ## Security boundary
 
 **The web API has no Docker socket.** It cannot apply Compose port binding or configure public DNS/SSL directly, and should not acquire host-root permissions just to make a UI button work. Host apply is an explicit, auditable operator step with rollback. Domain/TLS rollout remains a separate release gate.
+
+## Follow-up forensic audit
+
+The latest [sidebar and network forensic audit](SIDEBAR-NETWORK-FORENSIC-AUDIT-2026-10-28.md) documents fixes for unsaved form data, stale DNS output, durable audit-before-write, error-status accuracy and host-side exclusive apply locking. The CI now exercises a real private port change and reversal. Real DNS/SSL deployment is still separate.
