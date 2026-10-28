@@ -172,3 +172,55 @@ test('MCP write flow needs OAuth vps:write + panel CSRF approval + single-use br
     }finally{await readClient.close();}
   }finally{await app.shutdown();await broker.stop();}
 });
+
+
+test('advanced dashboard controls enforce CSRF, global and per-client permissions, and client revoke',async()=>{
+  const {config}=await fixture();
+  const app=createHttpServer(config);
+  await new Promise<void>(resolve=>app.server.listen(0,'127.0.0.1',resolve));
+  const base='http://127.0.0.1:'+(app.server.address() as AddressInfo).port;
+  try{
+    const {access_token,csrf,cookie,client_id}=await exchange(base,'vps:read vps:write');
+    const api=(route:string,payload:Record<string,unknown>,csrfValue=csrf)=>fetch(base+route,{
+      method:'POST',headers:{cookie,'content-type':'application/json','x-csrf-token':csrfValue},
+      body:JSON.stringify(payload)
+    });
+    const initial=await fetch(base+'/api/status',{headers:{cookie}});
+    const status=await initial.json() as {policy:{tools:{name:string;enabled:boolean}[]};clients:{id:string}[]};
+    assert.ok(status.policy.tools.some(t=>t.name==='system_status'));
+    assert.ok(status.clients.some(c=>c.id===client_id));
+    const rejected=await api('/api/control/tool',{name:'system_status',enabled:false},'wrong');
+    assert.equal(rejected.status,403);
+    const impossible=await api('/api/control/tool',{name:'unrestricted_shell',enabled:true});
+    assert.equal(impossible.status,400);
+    const off=await api('/api/control/tool',{name:'system_status',enabled:false});
+    assert.equal(off.status,200);
+    const client=new Client({name:'permission-test',version:'1.0.0'});
+    await client.connect(new StreamableHTTPClientTransport(new URL(base+'/mcp'),{
+      requestInit:{headers:{authorization:'Bearer '+access_token}}
+    }));
+    try{
+      assert.equal((await client.listTools()).tools.some(t=>t.name==='system_status'),false);
+      const on=await api('/api/control/tool',{name:'system_status',enabled:true});
+      assert.equal(on.status,200);
+      assert.equal((await client.listTools()).tools.some(t=>t.name==='system_status'),true);
+      const clientOff=await api('/api/control/client-tool',{clientId:client_id,name:'disk_usage',enabled:false});
+      assert.equal(clientOff.status,200);
+      assert.equal((await client.listTools()).tools.some(t=>t.name==='disk_usage'),false);
+      assert.equal((await client.listTools()).tools.some(t=>t.name==='system_status'),true);
+      const actionOff=await api('/api/control/action',{name:'file.create',enabled:false});
+      assert.equal(actionOff.status,200);
+      const denied=await client.callTool({name:'operation_request',arguments:{
+        operation:{type:'file.create',path:'blocked.txt',content:'no'}
+      }});
+      assert.equal(denied.isError,true);
+    }finally{await client.close();}
+    const revoked=await api('/api/control/revoke-client',{clientId:client_id});
+    assert.equal(revoked.status,200);
+    const response=await fetch(base+'/mcp',{
+      method:'POST',headers:{authorization:'Bearer '+access_token,'content-type':'application/json'},
+      body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/list',params:{}})
+    });
+    assert.equal(response.status,401);
+  } finally {await app.shutdown();}
+});

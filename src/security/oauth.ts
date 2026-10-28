@@ -227,5 +227,22 @@ export class OAuthService {
     if(this.refresh.get(secret)?.clientId===id) this.refresh.delete(secret);
     this.persist();
   }
+  hasClient(id:string){return this.clients.has(id);}
+  listClients(){
+    this.cleanup();
+    return [...this.clients.values()].map(c=>({
+      id:c.id,name:c.name,redirectUris:[...c.redirects],
+      accessTokens:[...this.access.values()].filter(t=>t.clientId===c.id).length
+    }));
+  }
+  revokeClient(id:string){
+    if(!this.clients.has(id))throw new OAuthError('unknown_client',404);
+    this.clients.delete(id);
+    for(const [k,v] of this.access)if(v.clientId===id)this.access.delete(k);
+    for(const [k,v] of this.refresh)if(v.clientId===id)this.refresh.delete(k);
+    for(const [k,v] of this.pending)if(v.clientId===id)this.pending.delete(k);
+    for(const [k,v] of this.codes)if(v.clientId===id)this.codes.delete(k);
+    this.persist();
+  }
   stats() {this.cleanup(); return {clients:this.clients.size, activeTokens:this.access.size};}
 }

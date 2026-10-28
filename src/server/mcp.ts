@@ -10,6 +10,7 @@ import { operationSchema, type WriteOperation, type ApprovalQueue } from '../sec
 import { canWrite, type AccessIdentity } from '../security/authorization.js';
 import type { AppConfig } from '../shared/config.js';
 import type { AuditLog } from '../security/audit.js';
+import type { PolicyStore, Action } from '../security/policy.js';
 
 function result(value:unknown){return {content:[{type:'text' as const,text:JSON.stringify(value)}]};}
 function denied(message='Operation denied by policy'){return {isError:true,content:[{type:'text' as const,text:message}]};}
@@ -20,13 +21,15 @@ export function createMcpServer(
   audit?:AuditLog,
   config?:AppConfig,
   approvals?:ApprovalQueue,
-  context?:AsyncLocalStorage<AccessIdentity>
+  context?:AsyncLocalStorage<AccessIdentity>,
+  policy?:PolicyStore
 ):McpServer {
   const server=new McpServer({name:'vps-mcp',version:'0.4.0'},{maxToolInputElements:16});
-  const registered=(name:string)=>allowedTools.includes(name);
+  const registered=(name:string)=>allowedTools.includes(name) && (!policy || policy.toolAllowed(name,context?.getStore()?.clientId));
   const actor=()=>requestActor(context);
   const logged=async <T>(name:string,call:()=>Promise<T>|T) => {
     try{
+      if(policy && !policy.toolAllowed(name,actor()))throw Error('Tool disabled by administrator');
       const value=await call();
       audit?.record('mcp.request','success',actor(),name);
       return result(value);
@@ -73,11 +76,14 @@ export function createMcpServer(
       annotations:{readOnlyHint:false,destructiveHint:false,openWorldHint:false}
     },async({operation})=>{
       const identity=context.getStore();
-      if(!canWrite(identity||null,config)){
+      if(!canWrite(identity||null,config) || (policy && !policy.toolAllowed('operation_request',identity?.clientId))){
         audit?.record('operation.propose','denied',actor());
         return denied('OAuth write scope required');
       }
-      return logged('operation_request',()=>approvals.propose(identity!.clientId,operation));
+      return logged('operation_request',()=>{
+        if(policy && !policy.actionAllowed(operation.type as Action))throw Error('Action disabled');
+        return approvals.propose(identity!.clientId,operation);
+      });
     });
     server.registerTool('operation_execute',{
       description:'Execute a previously admin-approved single-use operation through the restricted Unix socket broker.',
@@ -85,11 +91,15 @@ export function createMcpServer(
       annotations:{readOnlyHint:false,destructiveHint:true,openWorldHint:false}
     },async({approvalId})=>{
       const identity=context.getStore();
-      if(!canWrite(identity||null,config)){
+      if(!canWrite(identity||null,config) || (policy && !policy.toolAllowed('operation_execute',identity?.clientId))){
         audit?.record('operation.execute','denied',actor());
         return denied('OAuth write scope required');
       }
-      return logged('operation_execute',()=>approvals.execute(approvalId,identity!.clientId,(op:WriteOperation)=>brokerCall(config,op)));
+      return logged('operation_execute',()=>approvals.execute(approvalId,identity!.clientId,(op:WriteOperation)=>{
+        if(policy && (!policy.toolAllowed('operation_execute',identity!.clientId) || !policy.actionAllowed(op.type as Action)))
+          throw Error('Administrator has disabled operation');
+        return brokerCall(config,op);
+      }));
     });
   }
   return server;

@@ -13,6 +13,7 @@ const schema = z.object({
   MCP_AUDIT_FILE: z.string().default('./data/audit.jsonl'),
   MCP_STATE_FILE: z.string().default('./data/oauth-state.json'),
   MCP_CONTROL_FILE: z.string().default('./data/control.json'),
+  MCP_POLICY_FILE: z.string().default('./data/policy.json'),
   MCP_READ_ROOT: z.string().default(''),
   MCP_WRITE_ROOT: z.string().default(''),
   MCP_DOCKER_CONTAINERS: z.string().default(''),

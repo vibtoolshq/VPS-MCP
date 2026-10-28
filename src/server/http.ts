@@ -13,6 +13,7 @@ import { SessionManager, type Session } from '../security/authentication.js';
 import { OAuthService, OAuthError } from '../security/oauth.js';
 import { canRead, type AccessIdentity } from '../security/authorization.js';
 import { ApprovalQueue } from '../security/approvals.js';
+import { PolicyStore } from '../security/policy.js';
 import { AuditLog } from '../security/audit.js';
 import { systemStatus } from '../tools/system.js';
 
@@ -73,6 +74,7 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
   const sessions=new SessionManager(config);
   const audit=new AuditLog(config.MCP_AUDIT_FILE);
   const approvals=new ApprovalQueue(audit);
+  const policy=new PolicyStore(config);
   const requestContext=new AsyncLocalStorage<AccessIdentity>();
   let mcpEnabled=loadMcpEnabled(config.MCP_CONTROL_FILE);
   const rates=new Map<string,{since:number;count:number}>();
@@ -90,7 +92,7 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
     }
     rates.set(key,{since:now,count:1});return true;
   }
-  const handler=createMcpHandler(() => createMcpServer(config.allowedTools,audit,config,approvals,requestContext),{responseMode:'json'});
+  const handler=createMcpHandler(() => createMcpServer(config.allowedTools,audit,config,approvals,requestContext,policy),{responseMode:'json'});
   const nodeHandler=toNodeHandler(handler);
 
   const route=async(req:IncomingMessage,res:ServerResponse) => {
@@ -151,10 +153,11 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
       if(path==='/api/status' && req.method==='GET'){
         const session=authenticated(req,res,sessions);if(!session)return;
         return json(res,200,{
-          mcpEnabled,endpoint:config.origin+'/mcp',allowedTools:config.allowedTools,
+          mcpEnabled,endpoint:config.origin+'/mcp',allowedTools:config.allowedTools.filter(name=>policy.toolAllowed(name)),
           oauth:oauth.stats(), system:systemStatus(),publicHttps:config.secureCookies,
           audit:await audit.list(20),writesEnabled:config.writesEnabled,
-          pendingApprovals:approvals.pending(), enrollmentSeconds:oauth.enrollment()
+          pendingApprovals:approvals.pending(), enrollmentSeconds:oauth.enrollment(),
+          policy:policy.snapshot(), clients:oauth.listClients().map(c=>({...c, tools:policy.clientAllowedTools(c.id)}))
         });
       }
       if(path==='/api/mcp' && req.method==='POST'){
@@ -166,6 +169,42 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
         mcpEnabled=payload.enabled;
         audit.record('panel.status','success',session.username,mcpEnabled?'enabled':'disabled');
         return json(res,200,{ok:true,mcpEnabled});
+      }
+      // Advanced controls are admin-only, CSRF-protected and limited by env allowlists.
+      if(path.startsWith('/api/control/') && req.method==='POST'){
+        const session=authenticated(req,res,sessions);if(!session)return;
+        if(!csrf(req,res,sessions,session))return;
+        const payload=await body(req,'json') as Record<string,unknown>;
+        if(!payload || typeof payload!=='object')return json(res,400,{error:'invalid_settings'});
+        try{
+          if(path==='/api/control/tool'){
+            if(typeof payload.name!=='string'||typeof payload.enabled!=='boolean')throw Error('Invalid toggle');
+            await audit.recordDurable('panel.status','success',session.username,'tool.'+payload.name);
+            policy.setTool(payload.name,payload.enabled);
+          }else if(path==='/api/control/action'){
+            if(typeof payload.name!=='string'||typeof payload.enabled!=='boolean')throw Error('Invalid action');
+            await audit.recordDurable('panel.status','success',session.username,'action.'+payload.name);
+            policy.setAction(payload.name,payload.enabled);
+          }else if(path==='/api/control/writes'){
+            if(typeof payload.enabled!=='boolean')throw Error('Invalid writes setting');
+            await audit.recordDurable('panel.status','success',session.username,'writes');
+            policy.setWritePaused(!payload.enabled);
+          }else if(path==='/api/control/client-tool'){
+            if(typeof payload.clientId!=='string'||typeof payload.name!=='string'||typeof payload.enabled!=='boolean')
+              throw Error('Invalid client tool');
+            if(!oauth.hasClient(payload.clientId))throw Error('Unknown client');
+            await audit.recordDurable('panel.status','success',session.username,'client-tool.'+payload.name);
+            policy.setClientTool(payload.clientId,payload.name,payload.enabled);
+          }else if(path==='/api/control/revoke-client'){
+            if(typeof payload.clientId!=='string'||!oauth.hasClient(payload.clientId))throw Error('Unknown client');
+            await audit.recordDurable('oauth.refresh','success',session.username,'client-revoked');
+            oauth.revokeClient(payload.clientId);
+            policy.revokeClientPolicy(payload.clientId);
+          }else return text(res,404,'Not found');
+          return json(res,200,{ok:true,policy:policy.snapshot()});
+        }catch{
+          return json(res,400,{error:'not_allowed_or_storage_unavailable'});
+        }
       }
       if(path==='/api/approval' && req.method==='POST'){
         const session=authenticated(req,res,sessions);if(!session)return;
