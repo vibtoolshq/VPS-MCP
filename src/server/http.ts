@@ -177,6 +177,7 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
         const payload=await body(req,'json') as Record<string,unknown>;
         if(!payload || typeof payload!=='object')return json(res,400,{error:'invalid_settings'});
         try{
+          let warning:string|undefined;
           if(path==='/api/control/tool'){
             if(typeof payload.name!=='string'||typeof payload.enabled!=='boolean')throw Error('Invalid toggle');
             await audit.recordDurable('panel.status','success',session.username,'tool.'+payload.name);
@@ -206,9 +207,14 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
             await audit.recordDurable('oauth.refresh','success',session.username,'client-revoked');
             oauth.revokeClient(payload.clientId);
             approvals.discardClient(payload.clientId);
-            policy.revokeClientPolicy(payload.clientId);
+            try {policy.revokeClientPolicy(payload.clientId);}
+            catch {
+              // Revocation is already durable. Never misreport the client as active.
+              warning='client_revoked_policy_cleanup_pending';
+              audit.record('panel.status','error',session.username,'policy-cleanup');
+            }
           }else return text(res,404,'Not found');
-          return json(res,200,{ok:true,policy:policy.snapshot()});
+          return json(res,200,{ok:true,policy:policy.snapshot(),...(warning?{warning}:{})});
         }catch{
           return json(res,400,{error:'not_allowed_or_storage_unavailable'});
         }

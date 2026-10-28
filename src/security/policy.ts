@@ -93,7 +93,7 @@ export class PolicyStore {
       name,
       // "enabled" is the client's saved preference, not the effective permission.
       // Global and OAuth scope restrictions are always applied separately.
-      enabled:!(this.data.clientDisabledTools[id]||[]).includes(name),
+      enabled:this.configuredTool(name)&&!(this.data.clientDisabledTools[id]||[]).includes(name),
       configured:this.configuredTool(name),
       globalEnabled:this.configuredTool(name)&&!this.data.disabledTools.includes(name),
       effective:this.toolAllowed(name,id)

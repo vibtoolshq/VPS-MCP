@@ -19,6 +19,18 @@ One small, login-verified admin panel controls **every tool available to this VP
 | Client lifecycle | List clients, view redirects/token count, revoke | OAuthService token/registration invalidation |
 | Existing controls | Enrollment, pending approvals, audit log, status | Existing APIs and CSRF-protected UI |
 
+## Interpreting dashboard switches
+
+- **Configured:** the operation or tool exists in the server's validated environment allowlist.
+- **On / Off preference:** the last explicit admin selection at that layer (global tool, client tool, operation type, or write-gate switch).
+- **Effective access:** the combined result after environment limits, global switches, client scope, client tool override and write-gate policy. An *On* preference can correctly display **currently blocked**.
+- Per-client `vps:read` and `vps:write` switches are admin-side policy gates; they never add OAuth scopes to existing tokens.
+- A read-disabled OAuth client is now rejected at `POST /mcp` with HTTP 403, including when requesting `tools/list`. Revoked clients receive 401.
+- Approve is disabled and the server rejects approval if the pending operation's action or client access has since been disabled. Deny remains possible.
+- Client revocation removes pending requests and tokens. A rare persistent client-policy cleanup failure is reported as a warning **after** the revocation succeeds.
+
+See [Advanced Control Forensic Audit](ADVANCED-CONTROL-AUDIT-2026-10-28.md).
+
 ## Important limitations
 
 - **Environment allowlists are hard ceilings.** A UI switch cannot enable a tool not already listed in `MCP_ALLOWED_TOOLS` or bypass `MCP_ENABLE_WRITES=false`, file roots, Docker container allowlists, Git sync opt-in, or the broker socket requirements.

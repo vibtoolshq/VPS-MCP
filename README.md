@@ -16,7 +16,7 @@ The compact login-verified panel now includes **tool-by-tool and client-by-clien
 
 Control state is stored in **`data/policy.json`** by default, with restricted permissions. You can customize the location using `MCP_POLICY_FILE`. The independent master kill switch remains in `MCP_CONTROL_FILE`.
 
-Read **[Advanced Control Panel Guide](docs/ADVANCED-CONTROL-PANEL.md)** for the exact permission model, endpoints and limitations. The UI cannot enable unrestricted shell commands, grant root privileges, override environment hard limits, or manage system services without a separately designed privileged backend.
+The advanced control policy was further audited for stale approvals, revocation persistence, client-specific read/write gates and dashboard state consistency. See [Advanced Control Forensic Audit](docs/ADVANCED-CONTROL-AUDIT-2026-10-28.md).\n\nRead **[Advanced Control Panel Guide](docs/ADVANCED-CONTROL-PANEL.md)** for the exact permission model, endpoints and limitations. The UI cannot enable unrestricted shell commands, grant root privileges, override environment hard limits, or manage system services without a separately designed privileged backend.
 
 ## Security audit after Phase 04
 

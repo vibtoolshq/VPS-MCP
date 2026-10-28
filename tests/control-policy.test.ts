@@ -95,6 +95,10 @@ test('policy snapshot distinguishes configured preferences from effective rights
  const store=new PolicyStore(cfg);
  const id='vpsmcp_'+'d'.repeat(43);
  store.setTool('system_status',false);
+ const unconfigured=store.clientAllowedTools(id).find(v=>v.name==='docker_status');
+ assert.equal(unconfigured?.configured,false);
+ assert.equal(unconfigured?.enabled,false);
+ assert.equal(unconfigured?.effective,false);
  const tool=store.clientAllowedTools(id).find(v=>v.name==='system_status');
  assert.equal(tool?.configured,true);
  assert.equal(tool?.enabled,true); // client preference preserved for later

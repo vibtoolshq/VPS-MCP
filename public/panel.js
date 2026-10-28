@@ -303,9 +303,12 @@ async function runAction(button,request,success){
   if(state.activeAction||!state.signedIn)return;
   state.activeAction=true;button.disabled=true;
   try{
-    await request();
+    const outcome=await request();
     await refresh();
-    if(state.signedIn)feedback(success,'success');
+    if(state.signedIn){
+      if(outcome?.warning)feedback('Action completed, but local policy cleanup needs attention.');
+      else feedback(success,'success');
+    }
   }catch(error){
     if(state.signedIn)feedback(humanError(error));
   }finally{state.activeAction=false;button.disabled=false;}
