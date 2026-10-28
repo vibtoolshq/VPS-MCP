@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { IncomingMessage } from 'node:http';
 import type { AppConfig } from '../shared/config.js';
 import type { AccessIdentity } from './authorization.js';
-import { READ_SCOPE } from './authorization.js';
+import { READ_SCOPE, WRITE_SCOPE } from './authorization.js';
 
 type Client = { id: string; redirects: string[]; name: string };
 type Pending = { id:string; clientId:string; redirect:string; challenge:string; state:string; resource:string; scope:string; until:number };
@@ -55,10 +55,11 @@ export class OAuthService {
     renameSync(temporary,file);
   }
 
+  private scopes(){return this.config.writesEnabled?[READ_SCOPE,WRITE_SCOPE]:[READ_SCOPE];}
   get resource() {return this.config.origin+'/mcp';}
   get metadataUrl(){return this.config.origin+'/.well-known/oauth-protected-resource';}
   protectedResource() {
-    return {resource:this.resource,authorization_servers:[this.config.origin],scopes_supported:[READ_SCOPE],bearer_methods_supported:['header']};
+    return {resource:this.resource,authorization_servers:[this.config.origin],scopes_supported:this.scopes(),bearer_methods_supported:['header']};
   }
   authorizationServer() {
     return {
@@ -71,7 +72,7 @@ export class OAuthService {
       grant_types_supported:['authorization_code','refresh_token'],
       token_endpoint_auth_methods_supported:['none'],
       code_challenge_methods_supported:['S256'],
-      scopes_supported:[READ_SCOPE,'offline_access'],
+      scopes_supported:[...this.scopes(),'offline_access'],
       client_id_metadata_document_supported:false
     };
   }
@@ -116,7 +117,7 @@ export class OAuthService {
     const client=this.clients.get(clientId);
     if(!client || !client.redirects.includes(redirect)) throw new OAuthError('invalid_client');
     const requested=(params.get('scope')||READ_SCOPE).split(' ').filter(Boolean);
-    if(!requested.includes(READ_SCOPE)||requested.some(s=>![READ_SCOPE,'offline_access'].includes(s))) throw new OAuthError('invalid_scope');
+    if(!requested.includes(READ_SCOPE)||requested.some(s=>![...this.scopes(),'offline_access'].includes(s))) throw new OAuthError('invalid_scope');
     const challenge=params.get('code_challenge')||'';
     if(params.get('response_type')!=='code'||params.get('code_challenge_method')!=='S256'||!/^[A-Za-z0-9_-]{43}$/.test(challenge)){
       throw new OAuthError('invalid_request');

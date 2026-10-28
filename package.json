@@ -1,8 +1,8 @@
 {
   "name": "vps-mcp",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
-  "description": "OAuth-backed read-only VPS MCP server with compact admin dashboard (Phase 03)",
+  "description": "Permission-scoped VPS MCP with approval-gated broker operations",
   "type": "module",
   "scripts": {
     "dev": "node --env-file-if-exists=.env --import tsx src/index.ts",
@@ -10,7 +10,8 @@
     "start": "node --env-file-if-exists=.env dist/index.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "tsx --test tests/*.test.ts",
-    "check": "npm run typecheck && npm test && npm run build"
+    "check": "npm run typecheck && npm test && npm run build",
+    "broker": "node --env-file-if-exists=.env dist/broker/main.js"
   },
   "engines": {
     "node": ">=22"

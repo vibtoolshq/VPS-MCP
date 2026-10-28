@@ -12,13 +12,24 @@ const schema = z.object({
   MCP_ALLOWED_TOOLS: z.string().default('system_status,disk_usage'),
   MCP_AUDIT_FILE: z.string().default('./data/audit.jsonl'),
   MCP_STATE_FILE: z.string().default('./data/oauth-state.json'),
+  MCP_READ_ROOT: z.string().default(''),
+  MCP_WRITE_ROOT: z.string().default(''),
+  MCP_DOCKER_CONTAINERS: z.string().default(''),
+  MCP_DEPLOY_REPO: z.string().default(''),
+  MCP_DEPLOY_BRANCH: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._\/-]{0,63}$/).default('main'),
+  MCP_BROKER_SOCKET: z.string().default(''),
+  MCP_BROKER_SECRET: z.string().default(''),
+  MCP_ENABLE_WRITES: z.enum(['true','false']).default('false'),
+  MCP_ALLOW_GIT_SYNC: z.enum(['true','false']).default('false'),
   MCP_LOG_LEVEL: z.enum(['debug','info','warn','error']).default('info')
 });
-export type AppConfig = z.infer<typeof schema> & {
+export type AppConfig = Omit<z.infer<typeof schema>, 'MCP_ALLOW_GIT_SYNC'> & {
   origin: string;
   redirectUris: string[];
   allowedTools: string[];
   secureCookies: boolean;
+  writesEnabled: boolean;
+  MCP_ALLOW_GIT_SYNC: boolean;
 };
 export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
   const parsed = schema.parse(source);
@@ -51,7 +62,22 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
     }
   }
   const allowedTools = parsed.MCP_ALLOWED_TOOLS.split(',').map(v => v.trim()).filter(Boolean);
-  if (allowedTools.some(v => !['system_status','disk_usage'].includes(v))) throw new Error('Unknown or privileged tool in MCP_ALLOWED_TOOLS');
+  const declared = ['system_status','disk_usage','workspace_list','workspace_read','docker_status','deployment_status','operation_request','operation_execute'];
+  if (allowedTools.some(v => !declared.includes(v))) throw new Error('Unknown or privileged tool in MCP_ALLOWED_TOOLS');
   if (new Set(allowedTools).size !== allowedTools.length) throw new Error('Duplicate tool permission');
-  return {...parsed, origin: parsedOrigin.origin, secureCookies: parsedOrigin.protocol === 'https:', redirectUris, allowedTools};
+  const writesEnabled=parsed.MCP_ENABLE_WRITES==='true';
+  if ((writesEnabled || allowedTools.some(v=>['docker_status','deployment_status','operation_request','operation_execute'].includes(v)))
+    && (!parsed.MCP_BROKER_SOCKET.startsWith('/') || parsed.MCP_BROKER_SECRET.length<32)) {
+    throw new Error('Broker socket (absolute) and long secret required for broker tools');
+  }
+  if (writesEnabled && (!allowedTools.includes('operation_request') || !allowedTools.includes('operation_execute')))
+    throw new Error('Both approval MCP tools are required to enable write operations');
+  if (!writesEnabled && allowedTools.some(v=>v==='operation_request'||v==='operation_execute'))
+    throw new Error('Write approval tools may not be enabled without MCP_ENABLE_WRITES=true');
+  if (parsed.MCP_READ_ROOT && !parsed.MCP_READ_ROOT.startsWith('/')) throw new Error('Read root must be absolute');
+  if (parsed.MCP_WRITE_ROOT && !parsed.MCP_WRITE_ROOT.startsWith('/')) throw new Error('Write root must be absolute');
+  if (parsed.MCP_DEPLOY_REPO && !parsed.MCP_DEPLOY_REPO.startsWith('/')) throw new Error('Deploy repo must be absolute');
+  if (parsed.MCP_DOCKER_CONTAINERS.split(',').filter(Boolean).some(v=>!/^[A-Za-z][\w.-]{0,63}$/.test(v.trim())))
+    throw new Error('Invalid Docker allowlist');
+  return {...parsed, writesEnabled, MCP_ALLOW_GIT_SYNC:parsed.MCP_ALLOW_GIT_SYNC==='true', origin: parsedOrigin.origin, secureCookies: parsedOrigin.protocol === 'https:', redirectUris, allowedTools};
 }

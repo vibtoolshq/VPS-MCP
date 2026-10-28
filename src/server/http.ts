@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse, type Server as
 import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https';
 import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type { AddressInfo } from 'node:net';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import { createMcpHandler } from '@modelcontextprotocol/server';
@@ -9,7 +10,8 @@ import { createMcpServer } from './mcp.js';
 import { loadConfig, type AppConfig } from '../shared/config.js';
 import { SessionManager, type Session } from '../security/authentication.js';
 import { OAuthService, OAuthError } from '../security/oauth.js';
-import { canRead } from '../security/authorization.js';
+import { canRead, type AccessIdentity } from '../security/authorization.js';
+import { ApprovalQueue } from '../security/approvals.js';
 import { AuditLog } from '../security/audit.js';
 import { systemStatus } from '../tools/system.js';
 
@@ -62,13 +64,15 @@ function csrf(req:IncomingMessage,res:ServerResponse,sessions:SessionManager,ses
   }
   return true;
 }
-function consentHtml(name:string,id:string,csrfToken:string){
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Authorize VPS-MCP</title><link rel="stylesheet" href="/assets/panel.css"></head><body><div class="shell"><header class="topbar"><div class="brand"><span class="brand-icon">V</span>VPS/MCP</div><span class="tag">OAuth authorization</span></header><main><section class="login-card"><div class="eyebrow">AUTHORIZATION REQUEST</div><h1>Allow MCP access?</h1><p class="sub">The client <strong>${escape(name)}</strong> requests read-only system status and disk information. No terminal or Docker permissions will be granted.</p><form action="/oauth/approve" method="post"><input type="hidden" name="id" value="${escape(id)}"><input type="hidden" name="csrf" value="${escape(csrfToken)}"><button type="submit" name="decision" value="allow" class="primary">Approve read-only access</button><button type="submit" name="decision" value="deny" class="ghost">Deny</button></form><div class="footnote">Confirm only if you initiated this connection.</div></section></main></div></body></html>`;
+function consentHtml(name:string,id:string,csrfToken:string,writes:boolean){
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Authorize VPS-MCP</title><link rel="stylesheet" href="/assets/panel.css"></head><body><div class="shell"><header class="topbar"><div class="brand"><span class="brand-icon">V</span>VPS/MCP</div><span class="tag">OAuth authorization</span></header><main><section class="login-card"><div class="eyebrow">AUTHORIZATION REQUEST</div><h1>Allow MCP access?</h1><p class="sub">The client <strong>${escape(name)}</strong> ${writes?'requests READ + WRITE permissions. An additional explicit one-time approval in the dashboard is required for each supported write action.':'requests read-only status and workspace information. No write permission is granted.'}</p><form action="/oauth/approve" method="post"><input type="hidden" name="id" value="${escape(id)}"><input type="hidden" name="csrf" value="${escape(csrfToken)}"><button type="submit" name="decision" value="allow" class="primary">Approve requested access</button><button type="submit" name="decision" value="deny" class="ghost">Deny</button></form><div class="footnote">Confirm only if you initiated this connection.</div></section></main></div></body></html>`;
 }
 export function createHttpServer(config:AppConfig = loadConfig()) {
   const oauth=new OAuthService(config);
   const sessions=new SessionManager(config);
   const audit=new AuditLog(config.MCP_AUDIT_FILE);
+  const approvals=new ApprovalQueue(audit);
+  const requestContext=new AsyncLocalStorage<AccessIdentity>();
   let mcpEnabled=true;
   const rates=new Map<string,{since:number;count:number}>();
   function rateAllowed(req:IncomingMessage,kind:string,limit:number) {
@@ -85,7 +89,7 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
     }
     rates.set(key,{since:now,count:1});return true;
   }
-  const handler=createMcpHandler(() => createMcpServer(config.allowedTools,audit),{responseMode:'json'});
+  const handler=createMcpHandler(() => createMcpServer(config.allowedTools,audit,config,approvals,requestContext),{responseMode:'json'});
   const nodeHandler=toNodeHandler(handler);
 
   const route=async(req:IncomingMessage,res:ServerResponse) => {
@@ -148,7 +152,8 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
         return json(res,200,{
           mcpEnabled,endpoint:config.origin+'/mcp',allowedTools:config.allowedTools,
           oauth:oauth.stats(), system:systemStatus(),publicHttps:config.secureCookies,
-          audit:await audit.list(20)
+          audit:await audit.list(20),writesEnabled:config.writesEnabled,
+          pendingApprovals:approvals.pending()
         });
       }
       if(path==='/api/mcp' && req.method==='POST'){
@@ -159,6 +164,20 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
         mcpEnabled=payload.enabled;
         audit.record('panel.status','success',session.username,mcpEnabled?'enabled':'disabled');
         return json(res,200,{ok:true,mcpEnabled});
+      }
+      if(path==='/api/approval' && req.method==='POST'){
+        const session=authenticated(req,res,sessions);if(!session)return;
+        if(!csrf(req,res,sessions,session))return;
+        const payload=await body(req,'json') as Record<string,unknown>;
+        if(typeof payload?.id!=='string'||typeof payload.approve!=='boolean')
+          return json(res,400,{error:'invalid_approval'});
+        if(!config.writesEnabled)return json(res,403,{error:'write_operations_disabled'});
+        try {
+          const result=approvals.decide(payload.id,payload.approve,session.username);
+          return json(res,200,result);
+        }catch {
+          return json(res,409,{error:'approval_missing_or_expired'});
+        }
       }
       if(path==='/oauth/register' && req.method==='POST'){
         if(!rateAllowed(req,'oauth.register',10))return json(res,429,{error:'rate_limited'},{'retry-after':'60'});
@@ -171,7 +190,7 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
         if(!session) return redirect(res,'/?next='+encodeURIComponent(req.url||'/oauth/authorize'));
         const pending=oauth.begin(url.searchParams);
         res.writeHead(200,{'content-type':'text/html; charset=utf-8'});
-        return res.end(consentHtml(pending.clientName,pending.id,session.csrf));
+        return res.end(consentHtml(pending.clientName,pending.id,session.csrf,pending.scope.includes('vps:write')));
       }
       if(path==='/oauth/approve' && req.method==='POST'){
         const session=sessions.get(req);
@@ -208,7 +227,7 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
           });
         }
         audit.record('mcp.request','success',identity!.clientId);
-        return await nodeHandler(req,res);
+        return await requestContext.run(identity!,()=>nodeHandler(req,res));
       }
       return text(res,404,'Not found');
     } catch(error) {

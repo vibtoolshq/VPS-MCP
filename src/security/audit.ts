@@ -9,7 +9,7 @@ export type AuditEvent = {
   actor: string;
   detail?: string;
 };
-const SAFE_ACTIONS = new Set(['login','logout','oauth.register','oauth.authorize','oauth.token','oauth.refresh','mcp.request','mcp.reject','panel.status','server.start']);
+const SAFE_ACTIONS = new Set(['login','logout','oauth.register','oauth.authorize','oauth.token','oauth.refresh','mcp.request','mcp.reject','panel.status','server.start','operation.propose','operation.approve','operation.reject','operation.execute']);
 export class AuditLog {
   private recent: AuditEvent[] = [];
   private pending: Promise<void> = Promise.resolve();

@@ -3,7 +3,7 @@
 <body><div class="shell">
 <header class="topbar"><div class="brand"><span class="brand-icon">V</span><span>VPS<span class="muted">/</span>MCP</span></div><div class="topright"><span id="connection" class="pill">● Local service</span><button id="logout" class="ghost" hidden>Sign out</button></div></header>
 <main><section id="login-view" class="login-card">
-<div class="eyebrow">SECURE ACCESS</div><h1>Control panel login</h1><p class="sub">Sign in to inspect your private MCP server. No terminal or Docker changes are available in this phase.</p>
+<div class="eyebrow">SECURE ACCESS</div><h1>Control panel login</h1><p class="sub">Sign in to inspect your private MCP server. Operations are restricted by policy and require separate approval.</p>
 <form id="login-form"><label for="username">Username</label><input id="username" autocomplete="username" maxlength="64" required placeholder="admin">
 <label for="password">Password</label><input id="password" type="password" autocomplete="current-password" required placeholder="Enter password">
 <button class="primary" type="submit" id="login-button">Verify & sign in</button></form>
@@ -11,14 +11,17 @@
 <section id="dashboard" hidden>
 <div class="heading"><div><div class="eyebrow">SERVER OVERVIEW</div><h1>Control Center</h1><p class="sub">Minimal security-first MCP monitoring</p></div><button class="ghost" id="refresh">↻ Refresh</button></div>
 <div class="grid stats"><article class="card"><div class="card-title">MCP Service</div><div class="metric" id="mcp-state">—</div><div class="card-foot" id="mcp-endpoint">Checking...</div></article>
-<article class="card"><div class="card-title">Read-only tools</div><div class="metric" id="tools-count">—</div><div class="card-foot">Permission allowlist</div></article>
+<article class="card"><div class="card-title">Allowed MCP tools</div><div class="metric" id="tools-count">—</div><div class="card-foot">Permission allowlist</div></article>
 <article class="card"><div class="card-title">OAuth clients</div><div class="metric" id="clients-count">—</div><div class="card-foot">Authorized client registrations</div></article>
 <article class="card"><div class="card-title">Active access tokens</div><div class="metric" id="token-count">—</div><div class="card-foot">Expires / rotates automatically</div></article></div>
-<div class="grid lower"><article class="card"><div class="section-head"><h2>Access control</h2><span class="tag">Read-only</span></div>
+<div class="grid lower"><article class="card"><div class="section-head"><h2>Access control</h2><span class="tag" id="policy-label">Read-only</span></div>
 <p class="sub tight">Stop MCP traffic without affecting the panel or login.</p><div class="switch-row"><span id="mcp-toggle-desc">MCP API</span><button class="toggle" id="mcp-toggle">Disable MCP</button></div>
 <div class="rule"></div><h3>Allowed tools</h3><div id="tool-list" class="chips"></div></article>
 <article class="card"><div class="section-head"><h2>System</h2><span class="tag">Live</span></div><div class="statrow"><span>CPU cores</span><strong id="cpu">—</strong></div><div class="statrow"><span>Memory</span><strong id="memory">—</strong></div><div class="statrow"><span>Uptime</span><strong id="uptime">—</strong></div><div class="statrow"><span>Access mode</span><strong id="access-mode">—</strong></div></article></div>
+<article class="card audit" id="approval-card" hidden><div class="section-head"><h2>Pending approvals</h2><span class="tag">Manual verification required</span></div>
+<p class="sub tight">Only approve operations you recognize. Approvals expire after 5 minutes and are single-use.</p>
+<div id="approval-list" class="approval-list"></div></article>
 <article class="card audit"><div class="section-head"><h2>Recent security audit</h2><span class="tag">Latest 20</span></div><div class="table-scroller"><table><thead><tr><th>Time</th><th>Action</th><th>Result</th><th>Actor</th></tr></thead><tbody id="audit-rows"><tr><td colspan="4">Loading...</td></tr></tbody></table></div></article>
 <p class="feedback" id="notice" role="status"></p></section></main>
-<footer>VPS-MCP <span>·</span> Phase 03 <span>·</span> Compact secure dashboard</footer></div>
+<footer>VPS-MCP <span>·</span> Phase 04 <span>·</span> Compact secure dashboard</footer></div>
 <script src="/assets/panel.js" defer></script></body></html>

@@ -27,6 +27,34 @@ async function refresh() {
     mcpEnabled=data.mcpEnabled;
     put('mcp-toggle',mcpEnabled?'Disable MCP':'Enable MCP');
     put('mcp-toggle-desc',mcpEnabled?'MCP requests enabled':'MCP requests blocked');
+    $('approval-card').hidden=!data.writesEnabled;
+    put('policy-label',data.writesEnabled?'Approval-gated':'Read-only');
+    const approvalList=$('approval-list');approvalList.replaceChildren();
+    for(const item of data.pendingApprovals||[]) {
+      const line=document.createElement('div');line.className='approval-row';
+      const description=document.createElement('span');description.className='approval-summary';
+      description.textContent=item.summary+' · '+item.clientId;
+      line.append(description);
+      for(const [caption,approve] of [['Approve',true],['Deny',false]]) {
+        const button=document.createElement('button');button.className=approve?'primary small':'ghost small';
+        button.textContent=caption;
+        button.addEventListener('click',async()=>{
+          button.disabled=true;
+          try {
+            await api('/api/approval',{method:'POST',
+              headers:{'content-type':'application/json','x-csrf-token':csrf},
+              body:JSON.stringify({id:item.id,approve})});
+            await refresh();
+          } catch(error){put('notice',error.message);button.disabled=false;}
+        });
+        line.append(button);
+      }
+      approvalList.append(line);
+    }
+    if(!data.pendingApprovals?.length) {
+      const note=document.createElement('p');note.className='sub tight';
+      note.textContent='No pending operations';approvalList.append(note);
+    }
     const chips=$('tool-list'); chips.replaceChildren();
     for(const name of data.allowedTools){const child=document.createElement('span'); child.className='chip';child.textContent=name;chips.append(child);}
     const rows=$('audit-rows'); rows.replaceChildren();
