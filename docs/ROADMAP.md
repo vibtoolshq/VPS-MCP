@@ -28,3 +28,7 @@ Harden broker permissions with least-privileged OS deployment, review Docker gro
 ## Private Docker profile
 
 The default private Compose stack and one-time setup installer are documented in [PHASE-05-PRIVATE-INSTALL.md](PHASE-05-PRIVATE-INSTALL.md). Docker/Git broker and public HTTPS remain disabled pending a least-privileged integration review.
+
+## Final release audit
+
+The [final release audit](FINAL-RELEASE-AUDIT.md) covers first-run ownership, private container policy, loss-of-config fail-closed behavior, pinned dependencies, backup and isolated-volume restore. Final CI results must be checked at the repository Actions tab. Public DNS/HTTPS and real ChatGPT OAuth remain a separate gate.

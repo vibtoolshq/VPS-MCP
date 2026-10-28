@@ -50,3 +50,22 @@ Stop and uninstall retain the named volume and the generated `.env`; neither run
 - A lost setup token cannot be regenerated from an anonymous HTTP request. Restore the original setup terminal record or use an explicitly authorized local recovery procedure.
 - Container build still uses resolved package dependencies (`npm install`); a committed deterministic lockfile and `npm ci` are required before declaring a hardened reproducible release.
 - Public production exposure should wait until authentication, DNS/TLS, backup/restore, broker threat model and live connection are verified on the target VPS.
+
+## 5. Private backup and safe restore
+
+```bash
+bash scripts/backup.sh
+bash scripts/check-backup.sh ./backups/YOUR_BACKUP_DIRECTORY
+```
+
+The backup stops the API briefly, snapshots the private Docker volume, copies the auto-generated `.env`, and starts the API again. Backup files are local and mode 0600; **they contain sensitive credentials and must be encrypted before off-server transfer**.
+
+Restore is intentionally **refuse-on-existing-data**:
+
+```bash
+bash scripts/restore.sh /path/to/verified-private-backup-directory
+```
+
+Run it only in a new empty installation with neither `.env` nor the target Docker project data volume present. It validates paths/regular files in the archive, initializes a new volume, imports state and runs the container. It cannot reset or overwrite an installed server. The CI performs restore in a separate temporary Compose project without deleting the source volume. Existing credentials stay valid; the default starter password does not become active.
+
+If `.env` is deleted while its Docker data volume remains, `install.sh` refuses to create fresh secrets. Restore the original `.env` from backup. Legacy Phase-04 development `.env` files are not silently migrated into the Docker profile; backup and review before migration.

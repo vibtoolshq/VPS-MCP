@@ -35,3 +35,12 @@ Do not commit `.env`, broker secret, private keys, passwords, OAuth codes/tokens
 ## Reporting
 
 Report exploitable issues privately to maintainers without publishing credentials or sensitive details.
+
+## Private production profile hardening
+
+- A durable `/data/admin.json.complete` marker blocks anonymous reinitialization if the admin credential file goes missing. Recovery requires a trusted backup, never an HTTP reset.
+- On a missing `.env` with an existing Docker project volume, installer refuses to generate a new ownership token. Existing data is not reset.
+- `MCP_PRIVATE_CONTAINER=true` is only valid for internal bind 0.0.0.0 with a loopback-only origin. Docker Compose binds the host port exclusively to 127.0.0.1.
+- A committed npm lockfile and `npm ci` pin the dependency graph used by CI and Docker builds.
+- Backup stops the API for consistency and retains credentials and audit logs; restore refuses existing installation/volume. Backup archives are unencrypted at rest and must be encrypted before off-server transfer.
+- No privileged Docker daemon socket or write-capable broker is launched in the default Compose profile. The internal container still depends on secure Docker host administration and SSH access.

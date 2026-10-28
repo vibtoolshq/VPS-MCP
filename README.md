@@ -4,6 +4,14 @@ A lightweight, portable **Node.js + TypeScript MCP server** with an OAuth-secure
 
 > **Phase 05 private deployment foundation:** An isolated, localhost-only Docker Compose stack with automatic `.env` and mandatory first-visit admin setup is implemented. Public HTTPS, privileged broker isolation and a live ChatGPT connection are **not** yet verified.
 
+## Final security and deployment verification
+
+The final repository audit included dependency locking, first-setup ownership recovery, Docker volume-loss safety and restore testing. The default release is intentionally **private and SSH-forwarded**. Container isolation, encrypted SSH transport, user-owned credentials and opt-in MCP permissions are enabled by default.
+
+Install with `bash scripts/install.sh` (no manual `.env` editing). For a consistent private backup, run `bash scripts/backup.sh`; verify with `bash scripts/check-backup.sh /path/to/backup`. On a **different, empty installation only**, restore with `bash scripts/restore.sh /path/to/backup`. Restore will refuse existing `.env` and Docker data volume; it never overwrites the original installation.
+
+The full findings and remaining release constraints are in [Final Release Audit](docs/FINAL-RELEASE-AUDIT.md). **Public ChatGPT access, HTTPS gateway, privileged broker isolation and live VPS deployment are not yet verified** and must not be represented as ready.
+
 ## Zero-manual-env secure private installation
 
 From a fresh Ubuntu VPS with Docker/Compose installed:

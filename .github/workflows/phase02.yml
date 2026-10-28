@@ -60,3 +60,21 @@ jobs:
           fi
           mv "$RUNNER_TEMP/vpsmcp-env-saved" .env
           chmod 600 .env
+          # Restore without deleting or overwriting the source deployment volume.
+          restore_root="$RUNNER_TEMP/vpsmcp-independent-restore"
+          mkdir -p "$restore_root"
+          cp -a scripts src public Dockerfile compose.yaml package.json package-lock.json tsconfig.json "$restore_root/"
+          docker compose stop api >/dev/null
+          (
+            cd "$restore_root"
+            export COMPOSE_PROJECT_NAME=vps-mcp-restore-ci
+            bash scripts/restore.sh "$backup"
+            for i in {1..25}; do
+              if curl -fsS http://127.0.0.1:3000/health >/dev/null; then break; fi
+              sleep 2
+            done
+            curl -fsS http://127.0.0.1:3000/api/setup/status | grep -q '"required":false'
+            curl -fsS -H 'content-type: application/json' -d '{"username":"admin","password":"StrongNewPassphrase-2026!"}' http://127.0.0.1:3000/api/login | grep -q '"ok":true'
+            docker compose down --remove-orphans
+          )
+          # The source project's Docker data remains untouched.
