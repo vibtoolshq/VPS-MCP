@@ -1,150 +1,155 @@
 # VPS-MCP
 
-**Security-first, portable VPS Monitoring & MCP Control Panel** — Node.js 22 + TypeScript + MCP Streamable HTTP + OAuth + lightweight HTML/CSS/JavaScript dashboard, deployed with Docker Compose.
+**A simple, secure web control panel for your VPS, with MCP support for AI tools.**
 
-> **Release status (28 October 2026):** The **private, SSH-only deployment** has passed source tests and Docker CI, including first-admin setup, restart, backup and restore. **Public ChatGPT/AI remote connection, public HTTPS/OAuth and privileged Docker/Git operations are not yet live-validated or production-ready.** Do not treat the default installation as an Internet-facing MCP server.
+VPS-MCP runs inside Docker. It gives you a small dashboard to see system information, manage MCP permissions, review connected clients and prepare domain/network settings.
 
-**Guide language:** Clear English with copy-paste terminal commands and step-by-step explanations. Commands target Ubuntu 24.04 LTS unless otherwise noted.
+**New to VPS or Docker?** Start with the steps below. You do not need to edit an `.env` file or know how to code.
 
-## Table of contents
+> **Important — current release:** The private dashboard and automatic Docker installation are tested in GitHub CI. It works through an **SSH tunnel** (a secure connection from your PC). **Connecting ChatGPT or another cloud AI is not plug-and-play yet**: remote HTTPS/OAuth integration is still required and has not been tested on a live VPS. Domain/SSL options in the panel are planning tools, not automatic certificate installation.
 
-1. [At a glance: what works today](#1-at-a-glance-what-works-today)
-2. [Architecture and security boundaries](#2-architecture-and-security-boundaries)
-3. [Prerequisites and VPS preparation](#3-prerequisites-and-vps-preparation)
-4. [Docker Engine and Compose installation](#4-docker-engine-and-compose-installation)
-5. [Download and install VPS-MCP](#5-download-and-install-vps-mcp)
-6. [Open the panel securely from Windows or Linux](#6-open-the-panel-securely-from-windows-or-linux)
-7. [Mandatory first-login administrator setup](#7-mandatory-first-login-administrator-setup)
-8. [Control Panel and permission management](#8-control-panel-and-permission-management)
-9. [Health checks and verification](#9-health-checks-and-verification)
-10. [Daily operations, updates and service logs](#10-daily-operations-updates-and-service-logs)
-11. [Backup, restore and migration](#11-backup-restore-and-migration)
-12. [Connecting ChatGPT or another AI client](#12-connecting-chatgpt-or-another-ai-client)
-13. [OAuth and HTTPS integration requirements](#13-oauth-and-https-integration-requirements)
-14. [Example AI prompts and use cases](#14-example-ai-prompts-and-use-cases)
-15. [Troubleshooting](#15-troubleshooting)
-16. [Security checklist and known limits](#16-security-checklist-and-known-limits)
-17. [Developer commands, tools and project structure](#17-developer-commands-tools-and-project-structure)
-18. [Official documentation and release status](#18-official-documentation-and-release-status)
+## Start here
 
----
+You need:
+- A VPS running **Ubuntu 24.04** (or another supported Ubuntu version).
+- Your VPS **IP address**, SSH username and login method (password or SSH key).
+- A Windows, macOS or Linux PC with a browser.
+- Docker + Docker Compose on the VPS. If they are missing, see [Install Docker](#3-install-docker-if-needed).
 
-## 1. At a glance: what works today
+**Where do I type commands?**
 
-| Feature | Current state |
+| Label | Meaning |
 | --- | --- |
-| Ubuntu VPS installation with Compose | ✅ Private profile, tested in GitHub CI |
-| Automatic `.env` generation | ✅ No manual environment editing for **private** installation |
-| Setup token and forced first-visit admin setup | ✅ Implemented; login blocked until setup |
-| Starter username `admin` | ✅ Suggested on first visit |
-| Starter password `Pass@123` | ⚠️ Displayed as an example; **never accepted as the final password** |
-| Clean responsive web dashboard | ✅ Login, metrics, tools, approvals, clients, audit |
-| Per-tool / per-client access controls | ✅ Backend-enforced within configured ceilings |
-| Read-only system MCP tools | ✅ `system_status` and `disk_usage` in default Compose profile |
-| Restart, stop, update, private backup and isolated restore | ✅ Scripts plus CI smoke tests |
-| Open Control Panel from your PC | ✅ SSH port forwarding |
-| Use ChatGPT from the cloud | 🚧 Requires supported tunnel or public HTTPS + OAuth integration, **not plug-and-play yet** |
-| Docker restart, Git deployment and VPS file writes from AI | 🚧 Code exists for restricted broker workflows; **not enabled/deployed** in the private image |
-| Arbitrary shell, root SSH, firewall changes | ❌ Not implemented; intentionally not exposed |
+| **On the VPS** | In an SSH/PuTTY terminal connected to your Ubuntu server |
+| **On your PC** | In PowerShell/Terminal on your own computer |
+| **In the browser** | In Chrome/Firefox/Edge on your own computer |
 
-**Important:** A tool displayed in the dashboard as locked cannot be unlocked merely by clicking ON. The server's validated configuration is the upper permission ceiling.
+### The 5-step quick start
 
-### Quick command overview
-
-| Goal | From the VPS repository directory |
-| --- | --- |
-| First installation | `sudo bash scripts/install.sh` |
-| Check containers | `sudo bash scripts/status.sh` |
-| Follow logs | `sudo docker compose logs -f --tail=100 api` |
-| Stop | `sudo bash scripts/stop.sh` |
-| Start again | `sudo docker compose up -d` |
-| Update to checked-out source | `sudo bash scripts/update.sh` |
-| Consistent private backup | `sudo bash scripts/backup.sh` |
-| Validate backup | `sudo bash scripts/check-backup.sh /PATH/TO/BACKUP` |
-| Restore to a **new empty** installation | `sudo bash scripts/restore.sh /PATH/TO/BACKUP` |
-| Remove running services but keep data | `sudo bash scripts/uninstall.sh` |
-
-> We use `sudo` because access to the Docker daemon / `docker` group is effectively root-level. If the current account already has permitted Docker access, the leading `sudo` can be omitted. Never publish passwords or setup tokens in shell history, screenshots, issues or chat messages.
-
-## 2. Architecture and security boundaries
-
-```text
-Your Windows / Linux computer
-    └─ SSH tunnel (encrypted)
-         └─ VPS host: 127.0.0.1:3000 only
-             └─ Docker Compose: vps-mcp
-                 ├─ init-data (one-time volume ownership helper)
-                 └─ api (Node.js MCP + OAuth + Admin UI)
-                      ├─ non-root UID 10001
-                      ├─ read-only container filesystem
-                      ├─ no Docker socket / host-root access
-                      ├─ default read-only MCP permissions
-                      └─ private named volume: vps-mcp_mcp-data
-                          ├─ admin.json / admin.json.complete
-                          ├─ oauth-state.json
-                          ├─ policy.json
-                          ├─ control.json
-                          └─ audit.jsonl
-```
-
-Default Compose binds `127.0.0.1:3000:3000` — the **host's loopback address**, not the public VPS IP. No need to open ports 3000/8000/8080 on the external firewall. Docker itself needs ordinary administrative privileges to install and manage; this project does not need to be a member of the Docker group.
-
-The application is not a complete host-administration agent. It cannot automatically inspect or restart other host Docker containers when its own container does **not** have Docker daemon access. This is intentional to prevent a compromised AI connection from gaining host-root privileges.
-
-**Network security:** SSH tunnel is suitable for your local administrator dashboard. ChatGPT cloud services cannot enter your SSH-local tunnel merely by knowing `http://127.0.0.1:3000`.
-
-## 3. Prerequisites and VPS preparation
-
-Recommended starting point:
-
-- A VPS you administer, for example Ubuntu Server 24.04 LTS.
-- At least ~2 vCPU, 2 GiB RAM, adequate storage for images and audit data (guidance, not a hard limit).
-- SSH/sudo access and outbound package downloads.
-- Docker Engine, Docker Compose plugin, Git and OpenSSL.
-- A free local TCP port **3000** on the VPS and the laptop used for the SSH tunnel.
-- A recent browser; Windows PowerShell/OpenSSH, PuTTY, macOS or Linux work for tunnel access.
-
-### Step 3.1 — SSH into the VPS
-
-From Windows PowerShell or a Linux terminal:
+**Step 1 — On your PC: connect to the VPS**
 
 ```bash
 ssh ubuntu@YOUR_VPS_IP
 ```
 
-Replace `ubuntu` and `YOUR_VPS_IP` with your actual SSH account and host address. You can also log in with PuTTY. The instructions below run **inside the VPS SSH session**, not on your laptop.
+Replace `YOUR_VPS_IP` with your server IP, and `ubuntu` with your real SSH username. You can use PuTTY instead.
 
-### Step 3.2 — Basic checks
+**Step 2 — On the VPS: install Git and OpenSSL**
+
+```bash
+sudo apt update
+sudo apt install -y git openssl curl ca-certificates
+```
+
+If Docker is already installed, continue. Otherwise, follow [Step 3: Install Docker](#3-install-docker-if-needed) first.
+
+**Step 3 — On the VPS: download and install VPS-MCP**
+
+```bash
+cd ~
+git clone https://github.com/vibtoolshq/VPS-MCP.git
+cd VPS-MCP
+sudo bash scripts/install.sh
+```
+
+The installer builds the app, starts Docker Compose, creates a **private configuration automatically**, and prints a **one-time setup token**.
+
+**Keep the setup token private.** You need it once to create your administrator account. It is shown in the VPS terminal, not sent in a message or email.
+
+**Step 4 — On your PC: open a second terminal for the secure connection**
+
+```bash
+ssh -N -L 3000:127.0.0.1:3000 ubuntu@YOUR_VPS_IP
+```
+
+Keep this second terminal open. You can use [PuTTY port forwarding](#5-open-the-dashboard-with-putty) instead.
+
+**Step 5 — In your PC browser: open the dashboard**
+
+**http://127.0.0.1:3000**
+
+Enter the setup token, choose a username and **create your own strong password** (12 or more characters). Then log in.
+
+✅ **That's it!** You can now use the private VPS-MCP Control Panel.
+
+> **About the starter login:** The setup screen suggests username `admin` and shows `Pass@123` as an example. **`Pass@123` is not an active password** and must be replaced before the account can be created.
+
+---
+
+## Contents
+
+1. [What can VPS-MCP do?](#1-what-can-vps-mcp-do)
+2. [Before you install](#2-before-you-install)
+3. [Install Docker (if needed)](#3-install-docker-if-needed)
+4. [Install VPS-MCP and set up your account](#4-install-vps-mcp-and-set-up-your-account)
+5. [Open the dashboard with PuTTY](#5-open-the-dashboard-with-putty)
+6. [Understand the Control Panel](#6-understand-the-control-panel)
+7. [Domain, SSL and port settings](#7-domain-ssl-and-port-settings)
+8. [Everyday commands: start, stop, update](#8-everyday-commands-start-stop-update)
+9. [Backup and restore your data](#9-backup-and-restore-your-data)
+10. [Common problems and solutions](#10-common-problems-and-solutions)
+11. [Check that everything is working](#11-check-that-everything-is-working)
+12. [Connecting ChatGPT or another AI client](#12-connecting-chatgpt-or-another-ai-client)
+13. [Important safety rules](#13-important-safety-rules)
+14. [More detailed guides](#14-more-detailed-guides)
+
+## 1. What can VPS-MCP do?
+
+| Feature | Available now? |
+| --- | --- |
+| Install with one script, without editing `.env` | ✅ Yes |
+| Create an admin account on first visit | ✅ Yes |
+| See system and disk information | ✅ Yes, through the configured read-only tools |
+| Use a small, seven-page sidebar dashboard | ✅ Yes |
+| Turn configured MCP tools ON/OFF | ✅ Yes |
+| Manage OAuth clients and permissions | ✅ Yes, within configured limits |
+| Save a domain/SSL plan and check DNS | ✅ Yes, **planning and checking only** |
+| Change the private Docker host port safely | ✅ Yes, with a separate VPS command |
+| Backup, restore and update | ✅ Scripts provided |
+| Automatically install a domain SSL certificate | ❌ Not implemented |
+| Connect ChatGPT to this private installation immediately | ❌ Additional remote connection setup required |
+| Give an AI unrestricted VPS/Docker/root access | ❌ Disabled for security |
+
+**MCP in simple words:** MCP is a way for an AI application to request information from another service. VPS-MCP controls **which tools an AI client is allowed to use**. By default, only basic read-only information tools are enabled.
+
+## 2. Before you install
+
+Check these things:
+
+- You can log in to your VPS using SSH or PuTTY.
+- You have permission to run commands using `sudo`.
+- You have enough free disk space for Docker images.
+- **Port 3000** is not already used by another app.
+- You are not accidentally changing a production VPS that runs other important services.
+
+**On the VPS**, run:
 
 ```bash
 cat /etc/os-release
-uname -m
 free -h
 df -h /
-sudo -v
+sudo ss -lntp | grep ':3000 ' || true
 ```
 
-Install prerequisites:
+If the last command shows another program using port 3000, do not stop it blindly. Read [Domain, SSL and port settings](#7-domain-ssl-and-port-settings) before changing the port.
 
-```bash
-sudo apt-get update
-sudo apt-get install -y ca-certificates curl git openssl
-```
+## 3. Install Docker (if needed)
 
-**If you already have Docker Engine and the Compose plugin installed**, check them and skip section 4:
+**Already have Docker?** On the VPS, check:
 
 ```bash
 sudo docker version
 sudo docker compose version
 ```
 
-Do not reinstall Docker or change the firewall on a VPS that already hosts production services unless you have reviewed the impact.
+If both commands work, **skip this section**.
 
-## 4. Docker Engine and Compose installation
-
-This section follows the official Docker Engine Ubuntu `apt` repository method. Use it on a **new / reviewed** Ubuntu VPS without a conflicting Docker installation. See [Docker's current Ubuntu installation guide](https://docs.docker.com/engine/install/ubuntu/) before running it.
+For a **fresh Ubuntu 24.04 VPS**, install Docker from the official repository. Run these commands **on the VPS**:
 
 ```bash
+sudo apt update
+sudo apt install -y ca-certificates curl
+
 sudo install -m 0755 -d /etc/apt/keyrings
 sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
 sudo chmod a+r /etc/apt/keyrings/docker.asc
@@ -152,275 +157,166 @@ sudo chmod a+r /etc/apt/keyrings/docker.asc
 . /etc/os-release
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $VERSION_CODENAME stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
-sudo apt-get update
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 sudo systemctl enable --now docker
+```
+
+Check:
+
+```bash
 sudo docker version
 sudo docker compose version
 ```
 
-Optional check:
+If a command fails, check the [official Docker Ubuntu guide](https://docs.docker.com/engine/install/ubuntu/). **Do not reinstall Docker on a VPS already running other Docker services without reviewing the impact.**
 
-```bash
-sudo systemctl is-active docker
-```
+## 4. Install VPS-MCP and set up your account
 
-Expected output: `active`. Avoid `curl ... | sh` commands from unreviewed websites. Installation of Docker can affect firewall packet forwarding; check your host's existing exposure and other container workloads.
+If you followed Quick Start, you can skip the repeated installation commands below.
 
-## 5. Download and install VPS-MCP
-
-### Step 5.1 — Clone the repository
-
-Run on the VPS:
+**On the VPS:**
 
 ```bash
 cd ~
 git clone https://github.com/vibtoolshq/VPS-MCP.git
 cd VPS-MCP
-git status
-```
-
-On an already cloned project, simply enter its existing directory. **Do not replace an existing installation's `.env` or persistent volume.**
-
-### Step 5.2 — Check that port 3000 is not already occupied
-
-```bash
-sudo ss -lntp | grep ':3000 ' || true
-```
-
-No matching output generally means there is no listener on port 3000. If another service already uses it, do not stop that service blindly; choose a different port only after reviewing the Compose and origin configuration together.
-
-### Step 5.3 — Run the one-command installer
-
-```bash
 sudo bash scripts/install.sh
 ```
 
-The installer automatically:
+**What happens automatically?**
 
-1. Checks Docker and Compose availability.
-2. Refuses to reset an existing installation if `.env` is missing but its data volume exists.
-3. Generates a fresh random **one-time setup token**.
-4. Creates a mode-`0600` private `.env` (no manual editing).
-5. Builds and starts the restricted Docker Compose stack.
-6. Prints the setup token **once** in the SSH terminal.
+1. The installer checks Docker and Compose.
+2. It creates a private `.env` configuration file.
+3. It generates a random **one-time setup token**.
+4. It creates the Docker containers and a private data volume.
+5. It prints the setup token in the terminal.
 
-Example terminal output **illustration only**:
+You **do not** need to configure the admin password in `.env` yourself.
+
+**Example installation output** (your token will be different):
 
 ```text
 === VPS-MCP — ONE-TIME FIRST-LOGIN SETUP ===
 Initial username suggestion: admin
 Starter password example: Pass@123 (must change; never active)
-Setup token: [a unique 64-character secret printed here]
+Setup token: [YOUR UNIQUE SETUP TOKEN]
 ```
 
-Save the setup token privately until your first visit is complete. **Do not paste it into the README, GitHub, ChatGPT, a support ticket, or a public screenshot.** It is not the administrator's long-term password.
+### Create the admin account
 
-### Step 5.4 — Verify installation
+Using the secure PC connection described in Step 4, open:
 
-```bash
-sudo docker compose ps
-curl --fail --silent http://127.0.0.1:3000/health
-curl --fail --silent http://127.0.0.1:3000/api/setup/status
-```
+**http://127.0.0.1:3000**
 
-Before setup, expected status contains `"required":true`. The health response contains `"status":"ok"`. The host port is only on `127.0.0.1`.
+Fill in the **Create your admin account** form:
+1. Paste the one-time setup token.
+2. Keep `admin` as your username or enter another username.
+3. **Replace the example password** with a new password of at least 12 characters.
+4. Confirm it and save.
+5. Log in with the username/password you just created.
 
-If startup fails, see [Troubleshooting](#15-troubleshooting). Read the container logs, rather than rerunning commands that erase Docker volumes.
+**Keep your new password safe.** The setup process cannot be repeated from an anonymous web page after the first account has been created.
 
-## 6. Open the panel securely from Windows or Linux
+### If VPS-MCP is already installed
 
-**Do not visit `http://YOUR_VPS_IP:3000`** — it is intentionally not publicly published.
+Do not run `git clone` again in the same folder. Use the existing `VPS-MCP` directory and follow [the update steps](#8-everyday-commands-start-stop-update). The installer is designed to preserve an existing private configuration and Docker data.
 
-### Option A — Windows PowerShell / Terminal / macOS / Linux
+## 5. Open the dashboard with PuTTY
 
-Open a **new terminal on your own computer**, not on the VPS:
+For Windows users who prefer **PuTTY** over PowerShell:
 
-```bash
-ssh -N -L 3000:127.0.0.1:3000 ubuntu@YOUR_VPS_IP
-```
+1. Open **PuTTY**.
+2. In **Session**, enter your VPS IP address and SSH port.
+3. Go to **Connection → SSH → Tunnels**.
+4. Set **Source port** to `3000`.
+5. Set **Destination** to `127.0.0.1:3000`.
+6. Select **Local**, click **Add**, then **Open**.
+7. Log in to the VPS.
+8. On your **PC**, open **http://127.0.0.1:3000**.
 
-Leave this tunnel terminal open. Then open on the **same computer**:
+Leave PuTTY connected while you use the dashboard.
 
-**[http://127.0.0.1:3000](http://127.0.0.1:3000)**
+**Why not use `http://YOUR_VPS_IP:3000`?** The app intentionally listens on the VPS's **private localhost interface**, not its public IP. This protects the admin panel.
 
-`-N` means SSH does not start a remote command; `-L` maps your laptop's local 3000 port to the VPS's local 3000 port. The password/SSH key remains under your own SSH client. **Use local port 3000 for the supported default.** If it is already occupied on your computer, stop or reconfigure the conflicting local application first. Although SSH can forward a different local port, this server checks HTTP Host/Origin against its configured origin; simply forwarding local 3300 to remote 3000 **will not reliably work without reviewed server-origin configuration**. Do not disable Host/Origin security checks to bypass this.
+## 6. Understand the Control Panel
 
-### Option B — PuTTY on Windows
+The dashboard has **seven small sidebar pages**, so you don't need to scroll through one long settings page.
 
-1. Open **PuTTY** and enter the VPS address in `Session → Host Name` (SSH port normally 22).
-2. Open `Connection → SSH → Tunnels`.
-3. Set **Source port** = `3000`.
-4. Set **Destination** = `127.0.0.1:3000`.
-5. Select **Local**, then **Add**.
-6. Open the SSH session and sign in.
-7. Open your PC browser at `http://127.0.0.1:3000`.
-
-If the page does not load, confirm the SSH session remains connected, the container is running and both the VPS and PC port 3000 are free.
-
-## 7. Mandatory first-login administrator setup
-
-The first browser visit does **not** take you directly to a logged-in dashboard.
-
-1. Open the private dashboard via the SSH tunnel.
-2. The **Create your admin account** screen appears automatically.
-3. Enter the **one-time VPS setup token** printed during installation.
-4. Username initially suggests `admin`; you may keep it or choose another valid account name.
-5. The UI initially displays `Pass@123` as an example; **replace it** with your own strong password, minimum 12 characters.
-6. Repeat the new password in confirmation.
-7. Select **Save secure admin account**.
-8. You are returned to the login view. Sign in using **your chosen credentials**.
-
-**Security rules:**
-
-- `admin / Pass@123` is **not an active default account/password pair**.
-- The server rejects `Pass@123` as the final password.
-- Anonymous login, OAuth and MCP access are disabled until first setup is complete.
-- The admin password is saved as a **scrypt hash** in the private data volume, not plaintext.
-- First setup is one-time. If the credential file disappears after setup, the service **refuses to reopen setup**; use a trusted backup instead.
-- Failed setup/login attempts are rate-limited; avoid repeated guessing.
-
-Once logged in, check **MCP enabled**, **global tool permissions**, **security audit history**, **client enrollment** and **system metrics**.
-
-## 8. Control Panel and permission management
-
-The dashboard uses a compact dark interface with no heavyweight frontend framework.
-
-| Section | What you can do |
+| Page | What you will see |
 | --- | --- |
-| Overview | View reported MCP enabled state, endpoint, tool/client/token counts |
-| System | View CPU, memory, uptime and related status |
-| MCP Master Switch | Enable/disable the MCP API; shutdown state persists after restart |
-| Tool Permissions | Enable/disable each **configured** MCP tool |
-| Write Operations | Pause write gate; separately restrict file creation, Docker restart and Git sync **when backend is configured** |
-| Registered Clients | View OAuth client counts/redirects, restrict a client's tools or `vps:read`/`vps:write` access, revoke client |
-| OAuth Enrollment | Open/close a **5-minute** new-client registration window, maximum 5 registrations per window |
-| Pending Approvals | Confirm/deny sensitive operations, subject to OAuth scopes and current policy |
-| Security Audit | View recent events, filter, review denials and action history |
-| Sign Out | Invalidate the current web admin session |
+| **Overview** | System information, MCP status and main controls |
+| **Tool Access** | See which MCP tools are available and switch permitted ones ON/OFF |
+| **Operations** | Settings for sensitive actions; writes are disabled by default |
+| **Clients** | See connected/registered AI clients and control their access |
+| **Approvals** | Review requests that need permission |
+| **Domain & SSL** | Domain draft, DNS check and private port settings |
+| **Security Audit** | Recent login, access and security events |
 
-### Effective permissions: how ON/OFF really works
+**Why is a button locked?** Some features require secure backend configuration, not just an ON switch. The default Docker installation **does not** grant Docker restart, Git deployment or file-write access to AI. This is intentional.
 
-An action works only when **all** gates allow it:
+For a full explanation, see [Advanced Control Panel Guide](docs/ADVANCED-CONTROL-PANEL.md).
 
-```text
-Environment hard ceiling
-     AND global tool allowed
-     AND client tool allowed
-     AND client policy allowed
-     AND valid OAuth token / requested scopes
-     AND (for writes) write gate + approved operation + restricted broker
-```
+## 7. Domain, SSL and port settings
 
-The private installer enables only:
+Open **Domain & SSL** from the sidebar.
 
-```text
-MCP_ALLOWED_TOOLS=system_status,disk_usage
-MCP_ENABLE_WRITES=false
-MCP_ALLOW_GIT_SYNC=false
-```
+You can:
+- See your current private host port and application port.
+- Enter a domain name and save it as a **draft**.
+- Check whether DNS records resolve.
+- Choose a planned SSL/HTTPS mode.
+- Save a new **private** Docker host port.
 
-Therefore you **cannot turn on Docker restart, Git sync, unrestricted terminal, or workspace writes from the web UI** in this private profile. This is a safety property, not a broken toggle. Refer to [Advanced Control Panel Guide](docs/ADVANCED-CONTROL-PANEL.md) for the backend permission contract and API routes.
+**Very important:** **Save network plan** only saves your choices. It does **not** change DNS records, install SSL certificates or open the app to the public internet.
 
-### Available tool catalog
+### Change the private port (optional)
 
-| Tool | Function | Default private installer |
-| --- | --- | --- |
-| `system_status` | System CPU/RAM/uptime/read-only load status | ✅ Enabled |
-| `disk_usage` | Disk statistics for `/` and `/tmp` | ✅ Enabled |
-| `workspace_list` | List approved workspace entries | Locked, requires read root |
-| `workspace_read` | Read bounded approved text files | Locked, requires read root |
-| `docker_status` | Inspect allowlisted Docker container through broker | Locked, requires broker |
-| `deployment_status` | Inspect configured Git deployment repository | Locked, requires broker |
-| `operation_request` | Request a restricted write for admin approval | Locked by default |
-| `operation_execute` | Execute only an already-approved single-use operation | Locked by default |
+Most beginners should **keep port 3000**.
 
-Code for the separately restricted broker exists under `src/broker/`, but the default Compose **does not launch it**. Do not attach `/var/run/docker.sock` to the API container to make locked features appear functional.
+If you need another port:
+1. In **Domain & SSL**, choose a free host port, for example `3300`.
+2. Click **Save network plan**.
+3. **On the VPS**, run:
 
-### Latest sidebar/network forensic audit
-
-The Domain & SSL draft workflow has been audited for unsaved-input loss, stale DNS results, storage/audit error states and concurrent private-port changes. The host port apply flow is now exercised on a disposable Docker CI runner. See the [Sidebar & Network Forensic Audit](docs/SIDEBAR-NETWORK-FORENSIC-AUDIT-2026-10-28.md). The web panel still **does not** automatically issue SSL certificates or edit DNS records.
-
-### New: Compact sidebar Control Console
-
-The logged-in dashboard is now split into **seven lightweight, focused pages**, rather than one long page: **Overview, Tool access, Operations, Clients, Approvals, Domain & SSL, Security audit**. All seven stay inside the same authenticated panel, with a compact sticky sidebar on desktop and a horizontal, scrollable menu on narrow screens. No frontend framework or page reload is needed.
-
-### Domain, SSL & Port controls — important safety boundary
-
-Go to **Domain & SSL** from the sidebar to inspect the **active** origin, internal application port, Docker host bind/port and TLS state. You can save a validated **draft** containing a domain, a private host port (1024–65535) and a private-vs-external-HTTPS plan, and run a read-only DNS resolution check.
-
-**Saving the draft DOES NOT change live DNS, issue TLS certificates, change Docker bindings, or expose the server publicly.** The panel labels planned and applied settings separately.
-
-For a change to the **private Docker host port only**, after saving the draft, open a trusted SSH shell on the VPS and run:
-
-\`\`\`bash
+```bash
 cd ~/VPS-MCP
 sudo bash scripts/apply-network.sh
-\`\`\`
+```
 
-The host-side helper reads only the validated stored port, updates \`MCP_BIND_PORT\` in the private \`.env\`, rebuilds the localhost-only Compose port mapping without rebuilding the image, checks \`/health\` and restores the previous port if the test fails. The internal MCP server origin remains \`http://127.0.0.1:3000\`; the **PC SSH source port stays 3000**. If the new VPS host port is 3300, use:
+4. Reconnect your **PC** SSH tunnel with the same local port `3000` but the new VPS destination port `3300`:
 
-\`\`\`bash
+```bash
 ssh -N -L 3000:127.0.0.1:3300 ubuntu@YOUR_VPS_IP
-\`\`\`
-
-Open \`http://127.0.0.1:3000\` on your computer. Do **not** open port 3300 publicly. Future SSH tunnels must target the new VPS host port. Backups include the saved network draft, and restore allows that configuration file.
-
-**Domain and SSL are NOT one-click-live features in this release:** Real domain ownership, DNS changes, trusted certificate issuance/renewal, HTTPS reverse proxy, public OAuth origin and callback flows still require a separately authorized and externally validated gateway deployment. Selecting "Plan external HTTPS gateway" records intent only; it cannot turn on HTTPS.
-
-Read the [Control Panel & Network Guide](docs/CONTROL-PANEL-NETWORK.md) for exact workflow, validation and limitations.
-
-## 9. Health checks and verification
-
-From inside the VPS project directory:
-
-```bash
-sudo docker compose ps
-curl -fsS http://127.0.0.1:3000/health
-curl -fsS http://127.0.0.1:3000/api/setup/status
-sudo docker compose logs --tail=100 api
 ```
 
-Optional container hardening checks:
+5. Open **http://127.0.0.1:3000** again.
+
+The script checks the app and attempts to restore the old port if the health check fails. It **does not** make your server public. Actual DNS changes and SSL certificate management still require a separate HTTPS gateway.
+
+Read the [Domain and Port Guide](docs/CONTROL-PANEL-NETWORK.md) for more details.
+
+## 8. Everyday commands: start, stop, update
+
+Run all commands in the VPS project's directory:
 
 ```bash
-sudo docker compose exec -T api id -u
-sudo docker compose exec -T api node -e "console.log(require('fs').existsSync('/var/run/docker.sock'))"
-sudo docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$(sudo docker compose ps -q api)"
+cd ~/VPS-MCP
 ```
 
-Expected: UID `10001`, Docker socket `false`, read-only rootfs `true`.
+| What you want | Command |
+| --- | --- |
+| See container status | `sudo bash scripts/status.sh` |
+| Start again | `sudo docker compose up -d` |
+| Stop the app | `sudo bash scripts/stop.sh` |
+| Read recent error messages/logs | `sudo docker compose logs --tail=100 api` |
+| Follow live logs | `sudo docker compose logs -f --tail=100 api` |
+| Update the Docker app | `sudo bash scripts/update.sh` |
+| Remove running services **without deleting data** | `sudo bash scripts/uninstall.sh` |
 
-Check no unexpected publicly bound service:
+### How to update safely
 
-```bash
-sudo ss -lntp | grep ':3000 '
-```
-
-Expected host binding is **127.0.0.1:3000**. Verify both SSH-tunneled admin login and sign-out from your own browser. A successful `/health` response alone does **not** verify OAuth, persistence or ChatGPT integration.
-
-## 10. Daily operations, updates and service logs
-
-All commands in this section run from `~/VPS-MCP` (or your actual repository directory).
-
-### Status, logs, start, stop
-
-```bash
-sudo bash scripts/status.sh
-sudo docker compose logs -f --tail=100 api
-sudo bash scripts/stop.sh
-sudo docker compose up -d
-```
-
-Stop terminates containers, **not** the data volume or private `.env`. `Ctrl+C` exits the log viewer; it does not stop the server.
-
-### Update safely
-
-1. Create and verify a backup first (section 11).
-2. Check for local uncommitted changes.
-3. Pull reviewed repository updates.
-4. Run the provided update command.
-5. Verify health, login, permissions and logs.
+First make a [backup](#9-backup-and-restore-your-data). Then, **on the VPS**:
 
 ```bash
 cd ~/VPS-MCP
@@ -428,372 +324,166 @@ git status
 git pull --ff-only
 sudo bash scripts/update.sh
 sudo docker compose ps
-curl -fsS http://127.0.0.1:3000/health
 ```
 
-The update script **does not remove the persistent volume**. For an existing legacy development `.env`, the installer/update command may refuse automatic migration; restore from backup and review configuration rather than overwriting it.
+Do not use `git reset --hard` or delete `.env` to fix a failed update. The update script keeps your existing data volume.
 
-### Uninstall / remove running services
+## 9. Backup and restore your data
 
-```bash
-sudo bash scripts/uninstall.sh
-```
+Your private data includes admin credentials, OAuth client records, permissions and audit logs. **Your GitHub repository does not contain this private data.**
 
-This removes the Compose services but **preserves** the private Docker volume and `.env`. It is not a data-erasure command. Do **not** run `docker compose down -v` unless you have explicitly decided to delete your persisted credentials and verified your backups.
+### Make a backup
 
-## 11. Backup, restore and migration
-
-The persistent private volume stores identity, registration, permission and audit state. **A GitHub push is not a backup of your VPS runtime secrets or Docker data.**
-
-### Step 11.1 — Back up the running installation
+**On the VPS:**
 
 ```bash
 cd ~/VPS-MCP
 sudo bash scripts/backup.sh
 ```
 
-The script stops the API briefly for consistency, copies private `.env` and creates a compressed archive of the data volume, verifies it and restarts the API. It prints a backup directory similar to:
+This briefly stops the app, copies the private configuration and data into a backup folder, then starts it again. The command prints the folder location.
+
+Example:
 
 ```text
-.../backups/vps-mcp-YYYYMMDDTHHMMSSZ-NNNN/
-    config.env
-    data.tar.gz
+backups/vps-mcp-YYYYMMDDTHHMMSSZ-NNNN/
+  config.env
+  data.tar.gz
 ```
 
-**These backup files are not encrypted.** They contain sensitive credential hashes and OAuth state. Keep them private, transfer using an encrypted method, and encrypt any off-host backup. The backup directory and contents are not committed to Git.
+**Important:** Backup files are **not encrypted** by the script. They contain sensitive information. Store them securely, and encrypt them before uploading them elsewhere.
 
-### Step 11.2 — Verify an archive
+### Restore a backup
+
+Restore is for a **new, empty installation** only. It will refuse to overwrite a server that already has `.env` or a VPS-MCP data volume.
+
+1. Prepare a new VPS with Docker and clone VPS-MCP.
+2. **Do not run the normal installer** on this new destination.
+3. Copy your verified backup to the new VPS using a secure method.
+4. From the new VPS repository directory, run:
 
 ```bash
-sudo bash scripts/check-backup.sh /ABSOLUTE/PATH/TO/vps-mcp-YYYYMMDDTHHMMSSZ-NNNN
+sudo bash scripts/restore.sh /FULL/PATH/TO/YOUR/BACKUP
 ```
 
-Expected message: backup archive and private permissions verified. A structural check does not replace a trial restore.
+You can then log in with the **same admin credentials** as before.
 
-### Step 11.3 — Restore to a new / empty deployment
+More information: [Private Installation and Recovery Guide](docs/PHASE-05-PRIVATE-INSTALL.md).
 
-On a **separate new installation**, clone the project but **do not run `install.sh` first**. Transfer your verified backup securely to that host, then from the cloned repository directory run:
+## 10. Common problems and solutions
 
-```bash
-sudo bash scripts/restore.sh /ABSOLUTE/PATH/TO/PRIVATE-BACKUP
-```
-
-Restore deliberately **refuses** if the destination already has `.env` or the target Docker volume. Do not delete an existing volume just to make restore pass: first decide how to preserve the existing data, then use a separate reviewed recovery workflow. Restored account credentials remain the same; first-login setup will **not** reopen.
-
-After restore, verify health, SSH-tunneled login, permissions, audit records and OAuth client state. The CI validates an isolated restore using a distinct Compose project.
-
-### Step 11.4 — Lost credentials, token or `.env`
-
-| Problem | Safe recovery |
+| Problem | What to check |
 | --- | --- |
-| Lost one-time setup token **before** first login | Use a locally authorized recovery procedure or rebuild a genuinely new installation after verified no existing data; there is no anonymous reset endpoint |
-| Forgot admin password | Restore the verified account-state backup; no public password-reset API |
-| Deleted `.env` but private Docker volume remains | Restore `config.env` from a trusted backup as `.env` with mode 0600; installer intentionally refuses to issue replacement secrets |
-| Lost `admin.json` but `admin.json.complete` exists | Restore credentials from backup; the server fails closed |
-| OAuth client no longer works after restart | In-memory access tokens reset; reconnect/reauthorize as required and check current enrollment/redirect policy |
+| `docker: command not found` | Install Docker from Step 3 |
+| `docker compose` does not work | Install the Docker Compose plugin |
+| Dashboard does not open | Check the SSH tunnel, port 3000, and `sudo docker compose ps` |
+| `http://VPS_IP:3000` does not open | Normal: the app is private. Use SSH forwarding |
+| Setup token is rejected | Use the token printed during the **first installation**, not the sample password |
+| `Pass@123` does not log in | It is **not** a valid default password. Use the one you created |
+| A tool's ON switch is unavailable | That tool is not enabled by the server's security configuration |
+| Domain was saved but HTTPS does not work | Domain/SSL settings are a **plan only** |
+| Port changed and the page stopped opening | Update the **remote destination** in your PC's SSH tunnel |
+| Installer refuses because `.env` is missing | Existing Docker data was found. Restore your original `.env` from backup; don't reset the data |
+| ChatGPT cannot reach localhost | It needs a separately configured supported remote transport and OAuth |
+
+**To inspect logs**, run **on the VPS**:
+
+```bash
+cd ~/VPS-MCP
+sudo docker compose logs --tail=100 api
+```
+
+Never post your `.env` file, setup token, private backups, OAuth tokens, or admin password in a public support message.
+
+## 11. Check that everything is working
+
+**On the VPS**, run:
+
+```bash
+cd ~/VPS-MCP
+sudo docker compose ps
+curl -fsS http://127.0.0.1:3000/health
+curl -fsS http://127.0.0.1:3000/api/setup/status
+```
+
+If you changed the **private host port**, replace `3000` in the **curl destination** with your new VPS host port; the app's internal origin still uses 3000.
+
+Successful responses indicate the service is up and whether first-time setup is complete. Also check that you can log in through your PC's SSH tunnel.
+
+For more technical checks (non-root container, read-only filesystem, no Docker socket), see the [Security Guide](docs/SECURITY.md).
 
 ## 12. Connecting ChatGPT or another AI client
 
-**Start here: do not confuse your local admin panel with a remote AI connection.**
+### Can I connect ChatGPT immediately after installing?
 
-- **Dashboard:** `http://127.0.0.1:3000` through your computer's SSH tunnel.
-- **Local MCP endpoint:** `http://127.0.0.1:3000/mcp`, requiring an OAuth bearer token.
-- **ChatGPT cloud:** cannot directly access VPS loopback or your personal SSH tunnel.
-- **Remote MCP connection:** needs a supported **Secure MCP Tunnel** or public HTTPS MCP endpoint, plus authentication that works **end-to-end**.
+**Not yet with the default installation.**
 
-The current repository's private Compose profile has a **loopback OAuth issuer**, no public callback allowlist configured by the installer, and no bundled or tested OpenAI tunnel client. Therefore **entering the local `/mcp` URL in ChatGPT will not create a working connection**. Treat the following as integration guidance and requirements, **not a claim that deployment is finished**.
+The dashboard works privately over SSH, but **ChatGPT runs in the cloud**. It cannot directly open your VPS's private `127.0.0.1` address.
 
-### 12.1 Check account/workspace eligibility
+There are two general ways to make an MCP server reachable:
 
-As documented by OpenAI in October 2026, custom MCP connections are managed from **ChatGPT on the web**, under **Plugins → + → Add custom MCP server** (where available). Permissions depend on your plan and workspace:
+| Method | Meaning | Status in VPS-MCP |
+| --- | --- | --- |
+| **Secure MCP Tunnel** | A supported outbound connection from your private server to OpenAI | Not bundled/configured or tested yet |
+| **Public HTTPS MCP URL** | A real domain with valid HTTPS and working OAuth | Not deployed/tested yet |
 
-- ChatGPT Business and Enterprise/Edu workspaces have custom MCP creation/publishing controls subject to admin and organization permissions.
-- Pro users can access applicable developer/custom MCP functionality, with **read/fetch restrictions** documented for full MCP. Availability differs from organizational full-write support.
-- A feature not visible in your account cannot be enabled by changing the VPS. Check the current [OpenAI Custom MCP Help Center](https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt).
+**Even with a tunnel, this server's OAuth login/authorization flow must work from the connecting browser.** A tunnel alone does not automatically make the private login page reachable.
 
-### 12.2 Option A — Secure MCP Tunnel (preferred for a private server)
+### What needs to be ready first?
 
-OpenAI offers **Secure MCP Tunnel**, which can carry MCP traffic over an outbound connection without opening public inbound VPS ports. It involves a separately managed `tunnel-client` and OpenAI Platform/workspace permissions.
+Before adding VPS-MCP as a ChatGPT plugin:
 
-High-level operator procedure:
+1. Set up a **real and supported tunnel or public HTTPS connection**.
+2. Verify that the MCP endpoint and OAuth authorization pages can be reached correctly.
+3. Configure the **exact OAuth callback URL** shown by the AI client's connection flow.
+4. Ensure client registration/permissions are enabled only when needed.
+5. Test tool discovery and one **read-only** request.
 
-1. Open the [OpenAI Secure MCP Tunnel guide](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels).
-2. Confirm your account/workspace has the necessary Platform tunnel management/use permissions and access to custom MCP connections.
-3. Create a tunnel in **Platform tunnel settings**, associate the intended ChatGPT workspace, and obtain the actual `tunnel_id` and client credentials.
-4. Install OpenAI's official `tunnel-client` **on a trusted host that can reach** `127.0.0.1:3000/mcp` on the VPS. Do **not** mount Docker socket or reuse the web application's identity.
-5. Use the official client's instructions to configure its HTTP server target, run diagnostics and keep the tunnel service healthy.
-6. In ChatGPT **Plugins → + → Add custom MCP server**, choose **Tunnel**, select the available tunnel or enter its `tunnel_id`, configure authentication and review the security warning.
-7. Check OAuth discovery, login redirect and tools before accepting the plugin connection.
+**Current repository limitation:** These external HTTPS/OAuth steps require additional engineering. The automatic installer does **not** perform them. Do not expose port 3000 directly to the internet as a shortcut.
 
-**Blocking compatibility warning for this project:** An MCP tunnel can forward MCP requests, but **does not automatically publish this server's browser-facing OAuth authorization page or change its local issuer URL**. The current private `MCP_PUBLIC_URL=http://127.0.0.1:3000` may cause remote OAuth redirects to go to ChatGPT/user-local loopback. A reviewed public/callback-reachable OAuth design is still needed; the bundled installer does not implement it.
+### After the remote connection has been correctly configured and tested
 
-Do not paste API keys or tunnel tokens into ChatGPT messages or commit them to GitHub. See the official guide for version-specific `tunnel-client` arguments and access policy.
+For eligible ChatGPT accounts/workspaces, on the **ChatGPT website**:
 
-### 12.3 Option B — Public HTTPS MCP endpoint (separate production architecture)
+1. Open **Plugins** and choose **Add custom MCP server**.
+2. Enter the server's **public HTTPS MCP URL** (including `/mcp`), or choose a configured **Tunnel**.
+3. Set up authentication and review the permission warning.
+4. Create the plugin and check the tools it discovers.
+5. Try a safe request, such as: **“Use VPS-MCP to show system status.”**
 
-For a public plugin or other internet-based AI client, the application needs an **actual, validated HTTPS deployment**, for example:
+*The steps above explain the future connection flow; they are not a promise that the current private Docker install is already accessible to ChatGPT.*
 
-```text
-AI client / ChatGPT
-    ↓ HTTPS + validated OAuth
-https://mcp.your-domain.example/mcp
-    ↓ trusted proxy / restricted ingress
-Private MCP API and separately protected admin access
-```
-
-Before attempting this design:
-
-1. Own and configure a domain/subdomain with DNS pointing to the reviewed gateway.
-2. Terminate public HTTPS with a valid certificate, lifecycle/renewal and trusted reverse proxy, or properly configure a native TLS listener.
-3. Keep the admin interface accessible only to authorized operators; avoid opening a public password-setup route.
-4. Configure a **canonical external HTTPS origin** for MCP/OAuth. The current private-mode configuration **cannot simply be switched to a public origin while keeping `MCP_PRIVATE_CONTAINER=true`**; it explicitly rejects that combination.
-5. Ensure proxy Host/Origin behavior, trusted forwarding, OAuth metadata, issuer and resource URLs are consistent. Current private Compose and HTTP host checks are not certified for an arbitrary reverse proxy.
-6. Implement/configure the exact allowed ChatGPT OAuth callback(s), redirect consistency, PKCE-S256 and token refresh; verify in a real client.
-7. Add limits, monitoring, firewall rules, credential rotation, off-host backups and incident recovery.
-8. Test the complete OAuth and MCP flow before treating the endpoint as ready. **Do not map `0.0.0.0:3000:3000` or disable Host/Origin checks as a shortcut.**
-
-**Current project state:** This public topology is a **release requirement, not a provided one-command profile**. Production HTTPS/OAuth configuration and live ChatGPT verification still require engineering and operational work.
-
-### 12.4 ChatGPT connection steps — after transport + OAuth are validated
-
-When you have a real usable HTTPS or tunnel-backed endpoint:
-
-1. In a supported ChatGPT web account, open **Plugins**.
-2. Select the **+** button → **Add custom MCP server**.
-3. Set a clear name such as `VPS-MCP (Read-only)` and describe the server's limited permissions.
-4. Under **Connection**, provide the verified `https://mcp.your-domain.example/mcp` URL **or** select your configured **Tunnel**.
-5. Configure the OAuth flow. Use the **exact callback URI displayed in the connection workflow**, **not** an assumed or copied callback string.
-6. On the VPS panel (once correct HTTPS/OAuth configuration exists), temporarily open **OAuth Enrollment** for five minutes **before** the DCR client-registration step.
-7. Complete the OAuth login and consent with your admin account. Request only the supported read-only capabilities initially.
-8. Review the risk warning; select the acknowledgement checkbox and **Create as a plugin**.
-9. Review discovered tools. Install/enable the plugin in the appropriate workspace or account.
-10. In a new ChatGPT conversation, select the plugin with `@` or the Plugins picker, and try the read-only examples below.
-
-Tool lists may need explicit refresh after permission or schema changes. For workspace publication, follow your organization's admin policies and app review steps. See [OpenAI's connect-and-test guide](https://developers.openai.com/plugins/deploy/connect-chatgpt).
-
-### 12.5 Other AI applications, Codex and the OpenAI API
-
-A client can integrate if it actually supports **remote MCP Streamable HTTP** and the server's OAuth 2.1 flow. The intended server has a `POST /mcp` endpoint and metadata/authorization endpoints, but each AI product has different supported connection and authentication mechanisms.
-
-For OpenAI API remote MCP usage, consult [OpenAI's MCP tool guide](https://developers.openai.com/api/docs/guides/tools-connectors-mcp): public targets use `server_url`, whereas Secure MCP Tunnel targets use `tunnel_id` in supported API flows. The API requires separately acquired, valid authorization credentials for protected tools. This README does not generate or expose tokens or claim automatic authentication for arbitrary clients.
-
-**Never** use the public AI integration as a workaround for direct root/SSH access. Keep sensitive operations behind explicit permission checks and a reviewed broker.
-
-## 13. OAuth and HTTPS integration requirements
-
-These are the exact **existing** server routes and relevant constraints, useful for engineering and troubleshooting.
-
-| URL / route | Purpose |
-| --- | --- |
-| `/` | Admin login, mandatory first-visit setup and dashboard |
-| `/health` | Minimal health response (not an auth test) |
-| `/api/setup/status` | Is first-visit admin setup required? |
-| `/api/setup` | One-time setup token + new admin account |
-| `/api/session` and `/api/status` | Admin-session-only status and security controls |
-| `/api/mcp` | Admin CSRF-protected MCP master switch |
-| `/api/enrollment` | Admin CSRF-protected five-minute OAuth registration window |
-| `/api/control/*` | Granular admin policy controls |
-| `/api/approval` | Manual approval/deny for a pending write |
-| `/mcp` | OAuth Bearer-protected MCP Streamable HTTP POST |
-| `/.well-known/oauth-protected-resource` | OAuth protected resource discovery |
-| `/.well-known/oauth-authorization-server` | OAuth authorization server metadata |
-| `/oauth/register` | Restricted OAuth dynamic client registration |
-| `/oauth/authorize` | Admin consent and authorization |
-| `/oauth/token` | Authorization-code/refresh-token exchange |
-| `/oauth/revoke` | Token revocation |
-
-### OAuth design present in code
-
-- Authorization code + **PKCE S256**; server-issued access and rotating refresh tokens.
-- Dynamic Client Registration (**DCR**), but **closed by default**. No built-in CIMD client metadata registration implementation.
-- Exact callback allowlist is read from `OAUTH_ALLOWED_REDIRECT_URIS`. The default generated private `.env` leaves this empty, so **new remote OAuth clients cannot register**.
-- The server uses its configured origin to publish the issuer and resource information.
-- `vps:read` is required for MCP requests; `vps:write` is available only if write capability is configured and separately authorized.
-- The metadata advertises `offline_access`; actual long-lived connectivity still needs live token-refresh verification with ChatGPT.
-- Existing access tokens are **in memory** and reset on Node restart; OAuth client registration and refresh-token hashes are on persistent disk.
-
-**Callback rule:** OpenAI's exact callback URL can vary by connection mode and issuer-validation behavior (including a stable redirect or a callback-ID-specific redirect). **Copy it from your ChatGPT connection UI.** Do not assume a static URL just because it appears in a tutorial. Refer to [OpenAI OAuth Authentication](https://developers.openai.com/plugins/build/auth).
-
-### External verification checklist (before any public use)
-
-- The public HTTPS certificate validates; no broken redirect to localhost.
-- Public `/.well-known/*` metadata URLs report the exact external issuer and resource.
-- PKCE `S256` is advertised and supported.
-- ChatGPT's exact callback is allowlisted.
-- New client registration only opens during a short approved enrollment window.
-- Browser OAuth login/consent, code exchange, token refresh and reconnect succeed.
-- MCP discovery lists **only** the expected, granted tools.
-- Disabled clients and revoked tokens are actually rejected.
-- Security controls remain intact after restart; no unapproved Docker/Git privileged broker is exposed.
-
-**Do not enable a public endpoint before these requirements are tested.**
-
-## 14. Example AI prompts and use cases
-
-These examples are **for after a supported AI MCP connection has been successfully established**; they are not executable in ChatGPT simply because you installed the private dashboard.
-
-Read-only prompts for the default tool profile:
-
-- “Use the VPS-MCP plugin to show the VPS CPU count, memory and uptime.”
-- “Check disk usage for `/` and `/tmp`. Summarize the results without changing the VPS.”
-- “Read VPS system status and suggest whether capacity upgrades are needed. Don't perform any action.”
-
-If explicitly enabled in a future independently secured broker deployment, restricted tools could support inspecting an allowlisted container or proposing a single pre-approved write. **The current private Docker installation does not provide these write abilities.**
-
-A useful testing sequence is: tool discovery → one permitted read → one deliberately forbidden action → revoke test client → verify the old token no longer works.
-
-## 15. Troubleshooting
-
-| Symptom | Likely cause / safe fix |
-| --- | --- |
-| `docker: command not found` | Install Docker Engine; section 4 |
-| `docker compose` unavailable | Install Docker Compose plugin; do not assume legacy `docker-compose` |
-| Docker permission denied | Use `sudo` or reviewed daemon permissions; avoid casually adding users to the root-equivalent Docker group |
-| Browser won't open `127.0.0.1:3000` | SSH tunnel not running, host port conflict, or Compose container unhealthy |
-| Opening `YOUR_VPS_IP:3000` fails | Expected: default installation listens only on host loopback |
-| First setup view never appears | Check `/api/setup/status`, container logs and browser console; do not reset data |
-| `401` on login | Wrong credentials, old session, or first setup incomplete; check `/api/setup/status` |
-| `403` during setup | Incorrect token or weak/rejected password; 429 means rate limit |
-| `503 first_setup_required` | Complete mandatory token-based admin setup first |
-| Admin state missing after setup | Server refuses a fresh setup. Restore verified data volume backup |
-| Installer refuses when `.env` missing | Existing named volume detected; restore `config.env` from backup, don't regenerate |
-| Existing legacy `.env` refuses update | Review migration; private Compose profile and earlier dev config aren't interchangeable |
-| Tool is visible but locked | Environment did not configure the resource, broker or write capability |
-| OAuth `registration_closed` | Open the short enrollment window in the logged-in panel |
-| OAuth `invalid_redirect_uri` | Exact callback URL not allowlisted; default private env has none |
-| OAuth `invalid_target` or issuer mismatch | Resource/issuer not aligned to reachable canonical HTTPS endpoint |
-| ChatGPT cannot connect to `127.0.0.1` | Expected; ChatGPT is remote. Use a supported external transport and validated OAuth |
-| Tunnel shows healthy but OAuth fails | OAuth issuer/authorize URL can still be locally scoped or inaccessible to browser; tunnel does not automatically solve it |
-| Docker Compose image build fails | Check free disk, Docker daemon, outbound package access, `sudo docker compose logs` and package-lock resolution |
-| Changes not reflected in ChatGPT | Refresh/recreate tool connection as supported; previously published app tool snapshots may be frozen |
-| Restore refuses existing volume | Designed to protect existing state. Use a new installation/project; never erase state blindly |
-
-Useful diagnostics **without leaking secrets**:
-
-```bash
-sudo docker compose ps
-sudo docker compose logs --tail=120 api
-curl -i http://127.0.0.1:3000/health
-curl -i http://127.0.0.1:3000/api/setup/status
-sudo docker compose config --quiet
-```
-
-Avoid posting raw `.env` files, installer tokens, OAuth Bearer headers, cookies, audit records or backup archives into public issue trackers.
-
-## 16. Security checklist and known limits
-
-Before using the private profile:
-
-- [ ] SSH access uses strong keys/passwords and is restricted to authorized administrators.
-- [ ] Docker Engine/Compose are current and host firewall exposure is reviewed.
-- [ ] Port 3000 is published **only** on 127.0.0.1 (verified).
-- [ ] First-visit admin setup completed using the one-time token and a unique 12+ character password.
-- [ ] `admin / Pass@123` does not authenticate.
-- [ ] API container runs non-root, with read-only filesystem and no `docker.sock`.
-- [ ] Only `system_status` and `disk_usage` are enabled by default.
-- [ ] `.env` is mode 0600, excluded from Git and backed up securely.
-- [ ] Backup was verified and a separate restore can recover the admin login.
-- [ ] Access-control toggles, revoked clients and MCP disable state behave as expected.
-- [ ] No public proxy, tunnel or AI connector was enabled accidentally.
-
-**Remaining release limitations:**
-
-1. **Live VPS installation:** GitHub Actions Docker smoke tests passed; the user's real Contabo VPS has not yet been configured or tested with this repo.
-2. **ChatGPT / remote MCP:** Neither a deployed public HTTPS/OAuth origin nor an integrated Secure MCP Tunnel for this repo has been tested end-to-end. Current local issuer and empty redirect allowlist are blockers.
-3. **Privileged broker:** Root-equivalent Docker access and broker approval isolation remain unreviewed for production. Do not solve by mounting the Docker socket in the web API.
-4. **Certificate / proxy:** No automatic DNS, certificate renewal, public gateway, or proxy trust integration is shipped in private Compose.
-5. **Availability:** OAuth access sessions and pending approvals are process-local and reset on restart; running multiple replicas is unsupported.
-6. **Backup storage:** Backup archives are private but **not encrypted** by the script. Encrypt and securely rotate off-server copies.
-7. **Supply chain:** `package-lock.json` and `npm ci` pin npm packages, but the Docker base image and workflow action tags may still change unless additionally pinned by immutable digest/SHA.
-8. **Security assurance:** Passing tests and `npm audit` do not equal a penetration test, zero vulnerabilities or full disaster-recovery certification.
-
-## 17. Developer commands, tools and project structure
-
-For development on a trusted local machine (not the private Compose installer):
-
-```bash
-git clone https://github.com/vibtoolshq/VPS-MCP.git
-cd VPS-MCP
-npm ci
-cp .env.example .env
-node scripts/hash-password.mjs
-# Follow the hash helper's instructions and configure a private local admin hash.
-npm run check
-npm run dev
-```
-
-The generated `.env.example` is a **development reference**, not a public deployment profile. To run the first-visit installer, use **`bash scripts/install.sh`**, not `npm run dev`. Do not commit real configuration.
-
-Selected Node scripts:
-
-| Script | What it does |
-| --- | --- |
-| `npm run dev` | Start TypeScript entrypoint for local development |
-| `npm run typecheck` | Strict TypeScript check |
-| `npm test` | Automated Node/MCP/UI/security tests |
-| `npm run build` | Compile to `dist/` |
-| `npm run check` | Typecheck + tests + build |
-| `npm start` | Start compiled application |
-| `npm run broker` | Run separate broker in a developer-controlled environment; **not enabled in default Compose** |
-
-Project map:
-
-```text
-VPS-MCP/
-├── README.md
-├── Dockerfile
-├── compose.yaml
-├── package.json
-├── package-lock.json
-├── .env.example, .dockerignore, .gitignore
-├── public/
-│   ├── panel.html
-│   ├── panel.css
-│   └── panel.js
-├── src/
-│   ├── index.ts
-│   ├── server/          # HTTP router and MCP transport
-│   ├── security/        # setup, auth, OAuth, permissions, audit, approvals
-│   ├── tools/           # read-only and restricted tool implementations
-│   ├── broker/          # optional restricted broker; NOT in default Compose
-│   └── shared/          # validated runtime configuration
-├── config/              # example permissions configuration
-├── scripts/
-│   ├── install.sh
-│   ├── status.sh, stop.sh, update.sh, uninstall.sh
-│   ├── backup.sh, check-backup.sh, restore.sh
-│   └── hash-password.mjs
-├── tests/               # source, security, UI and setup regression tests
-├── docs/                # security, forensic audits, roadmap and phase guides
-└── .github/workflows/   # tests, dependency audit, Docker/restore CI
-```
-
-## 18. Official documentation and release status
-
-**OpenAI / MCP:**
-
-- [Connecting custom MCP servers in ChatGPT](https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt)
-- [Connect and test your plugin](https://developers.openai.com/plugins/deploy/connect-chatgpt)
+Official references:
+- [Connect a custom MCP server in ChatGPT](https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt)
 - [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)
-- [OpenAI plugin OAuth authentication](https://developers.openai.com/plugins/build/auth)
-- [OpenAI API MCP tools](https://developers.openai.com/api/docs/guides/tools-connectors-mcp)
-- [Docker Engine on Ubuntu](https://docs.docker.com/engine/install/ubuntu/)
+- [MCP connection and testing guide](https://developers.openai.com/plugins/deploy/connect-chatgpt)
 
-**Repository-specific supporting documents:**
+Other AI apps may use different menus, but they still need a compatible MCP transport, access permissions and authentication.
 
-- [Phase 05 Private Install Guide](docs/PHASE-05-PRIVATE-INSTALL.md)
-- [Advanced Control Panel Guide](docs/ADVANCED-CONTROL-PANEL.md)
-- [Final Release Forensic Audit](docs/FINAL-RELEASE-AUDIT.md)
-- [Security Policy](docs/SECURITY.md)
+## 13. Important safety rules
+
+- **Never share** your setup token, admin password, `.env`, session cookies or backup archives.
+- **Do not** open the Docker port to all public IP addresses just to make AI connect.
+- **Do not** mount the host `/var/run/docker.sock` into the web application.
+- The default installation is **read-only** for AI tools. Advanced Docker/Git writes are intentionally disabled.
+- Before upgrading, changing ports or migrating, **create a backup**.
+- An ON switch in the dashboard cannot bypass a locked server feature.
+- The current project is **CI-tested for private use**; live VPS and public ChatGPT integration have not been verified.
+
+## 14. More detailed guides
+
+You only need these if you want deeper technical details:
+
+- [Private VPS installation, backup and restore](docs/PHASE-05-PRIVATE-INSTALL.md)
+- [Sidebar, domain, DNS and port settings](docs/CONTROL-PANEL-NETWORK.md)
+- [Advanced tool and client permissions](docs/ADVANCED-CONTROL-PANEL.md)
+- [Security design and limitations](docs/SECURITY.md)
 - [Architecture](docs/ARCHITECTURE.md)
-- [Roadmap](docs/ROADMAP.md)
+- [Latest sidebar/network forensic audit](docs/SIDEBAR-NETWORK-FORENSIC-AUDIT-2026-10-28.md)
+- [Full release audit](docs/FINAL-RELEASE-AUDIT.md)
 
-### Final recommendation
+---
 
-For **today's verified code**, install the **read-only, localhost-only Docker profile**, finish first-login verification and access the UI through **SSH forwarding**. Use the backup/restore tools and confirm health.
+**Need help?** Start with [Common problems and solutions](#10-common-problems-and-solutions), then copy only **non-sensitive** error messages from `sudo docker compose logs --tail=100 api`.
 
-For **AI use from ChatGPT, Codex, an OpenAI API application or a different remote MCP client**, first implement and validate the correct transport + externally reachable OAuth authorization flow. **Do not expose the private service publicly by changing a port mapping.**
-
-### License
-
-No open-source license has been selected or committed. A publicly readable GitHub repository does **not** automatically grant redistribution permission.
+**Release scope:** Private Docker/SSH dashboard with read-only MCP tools. Public HTTPS, live ChatGPT connection and privileged server management are separate, unfinished integrations.
