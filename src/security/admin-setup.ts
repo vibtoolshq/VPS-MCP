@@ -47,6 +47,7 @@ export class AdminSetup {
       throw Error('Choose a unique 12+ character password; the starter password is not allowed');
    const saved=savedSchema.parse({version:1,username:account,passwordHash:hashPassword(password)});
    const file=this.config.MCP_ADMIN_STATE_FILE;
+   const marker=file+'.complete';
    mkdirSync(path.dirname(file),{recursive:true,mode:0o700});
    const temp=file+'.'+randomBytes(8).toString('hex')+'.tmp';
    try{

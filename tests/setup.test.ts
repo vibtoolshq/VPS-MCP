@@ -70,8 +70,8 @@ test('deleting admin credentials after setup does not reopen the bootstrap endpo
   const base='http://127.0.0.1:'+(first.server.address() as AddressInfo).port;
   const result=await fetch(base+'/api/setup',{
     method:'POST',headers:{'content-type':'application/json'},
-    body:JSON.stringify({token,username:'admin',password:'another-private-admin-password-2026',
-      confirm:'another-private-admin-password-2026'})
+    body:JSON.stringify({token,username:'admin',password:'UniqueSecurePassphrase#2026!',
+      confirm:'UniqueSecurePassphrase#2026!'})
   });
   assert.equal(result.status,200);
  }finally{await first.shutdown();}
