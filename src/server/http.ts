@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse, type Server as HttpServer } from 'node:http';
 import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https';
 import { readFileSync } from 'node:fs';
+import { loadMcpEnabled, persistMcpEnabled } from '../security/control.js';
 import { readFile } from 'node:fs/promises';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { AddressInfo } from 'node:net';
@@ -73,7 +74,7 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
   const audit=new AuditLog(config.MCP_AUDIT_FILE);
   const approvals=new ApprovalQueue(audit);
   const requestContext=new AsyncLocalStorage<AccessIdentity>();
-  let mcpEnabled=true;
+  let mcpEnabled=loadMcpEnabled(config.MCP_CONTROL_FILE);
   const rates=new Map<string,{since:number;count:number}>();
   function rateAllowed(req:IncomingMessage,kind:string,limit:number) {
     const now=Date.now();
@@ -161,6 +162,7 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
         if(!csrf(req,res,sessions,session))return;
         const payload=await body(req,'json') as Record<string,unknown>;
         if(typeof payload?.enabled!=='boolean')return json(res,400,{error:'invalid_enabled'});
+        persistMcpEnabled(config.MCP_CONTROL_FILE,payload.enabled);
         mcpEnabled=payload.enabled;
         audit.record('panel.status','success',session.username,mcpEnabled?'enabled':'disabled');
         return json(res,200,{ok:true,mcpEnabled});

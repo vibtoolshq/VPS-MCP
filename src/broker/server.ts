@@ -1,6 +1,6 @@
 import { createServer, type Server } from 'node:net';
 import { existsSync } from 'node:fs';
-import { chmod, mkdir, stat, unlink } from 'node:fs/promises';
+import { chmod, mkdir, stat, lstat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -78,7 +78,8 @@ export async function startBroker(config:AppConfig):Promise<{server:Server;stop:
   if(!path.isAbsolute(config.MCP_BROKER_SOCKET)||config.MCP_BROKER_SECRET.length<32)throw new Error('Broker socket and secret are required');
   const dir=path.dirname(config.MCP_BROKER_SOCKET);
   await mkdir(dir,{recursive:true,mode:0o700});
-  const folder=await stat(dir);
+  const folder=await lstat(dir);
+  if(!folder.isDirectory() || folder.isSymbolicLink())throw new Error('Broker socket parent must be a real directory');
   if((folder.mode & 0o077)!==0)throw new Error('Broker socket parent directory must be private (0700)');
   if(existsSync(config.MCP_BROKER_SOCKET))throw new Error('Broker socket path already exists');
   const server=createServer(socket=>{

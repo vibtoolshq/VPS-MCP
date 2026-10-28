@@ -1,4 +1,4 @@
-name: VPS-MCP verified core
+name: VPS-MCP security audit CI
 on:
   push:
     branches: [main]
@@ -16,3 +16,4 @@ jobs:
           node-version: '22'
       - run: npm install --no-audit --no-fund
       - run: npm run check
+      - run: npm audit --omit=dev --audit-level=high

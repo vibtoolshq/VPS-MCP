@@ -17,7 +17,8 @@ async function withServer(work:(base:string)=>Promise<void>){
     ADMIN_PASSWORD_HASH:hashPassword(password),
     OAUTH_ALLOWED_REDIRECT_URIS:callback,
     MCP_AUDIT_FILE:join(tmpdir(),'vps-mcp-ci-'+randomUUID()+'.jsonl'),
-    MCP_STATE_FILE:join(tmpdir(),'vps-mcp-ci-'+randomUUID()+'.json')
+    MCP_STATE_FILE:join(tmpdir(),'vps-mcp-ci-'+randomUUID()+'.json'),
+    MCP_CONTROL_FILE:join(tmpdir(),'vps-mcp-control-'+randomUUID()+'.json')
   });
   const app=createHttpServer(cfg);
   await new Promise<void>((resolve,reject)=>{

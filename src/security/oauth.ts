@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { existsSync, readFileSync, mkdirSync, writeFileSync, renameSync } from 'node:fs';
+import { existsSync, readFileSync, mkdirSync, writeFileSync, renameSync, statSync } from 'node:fs';
 import path from 'node:path';
 import type { IncomingMessage } from 'node:http';
 import type { AppConfig } from '../shared/config.js';
@@ -42,6 +42,9 @@ export class OAuthService {
   constructor(private config:AppConfig) {
     const file=config.MCP_STATE_FILE;
     if(!existsSync(file)) return;
+    const stateStat=statSync(file);
+    if(!stateStat.isFile() || (stateStat.mode & 0o077)!==0)
+      throw new Error('OAuth state file permissions are insecure');
     const stored=JSON.parse(readFileSync(file,'utf8')) as {
       version:number; clients:Client[]; refresh:[string,Refresh][]
     };

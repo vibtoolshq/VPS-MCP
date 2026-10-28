@@ -62,6 +62,8 @@ export class ApprovalQueue {
     item.busy=true;
     item.status='denied'; // atomic one-time consume BEFORE any broker operation
     try {
+      // Persist authorization evidence before performing any external side effect.
+      await this.audit?.recordDurable('operation.dispatch','success',clientId,item.operation.type);
       const result=await broker(item.operation);
       this.audit?.record('operation.execute','success',clientId,item.operation.type);
       return result;

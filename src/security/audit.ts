@@ -9,10 +9,11 @@ export type AuditEvent = {
   actor: string;
   detail?: string;
 };
-const SAFE_ACTIONS = new Set(['login','logout','oauth.register','oauth.authorize','oauth.token','oauth.refresh','mcp.request','mcp.reject','panel.status','server.start','operation.propose','operation.approve','operation.reject','operation.execute']);
+const SAFE_ACTIONS = new Set(['login','logout','oauth.register','oauth.authorize','oauth.token','oauth.refresh','mcp.request','mcp.reject','panel.status','server.start','operation.propose','operation.approve','operation.reject','operation.execute','operation.dispatch']);
 export class AuditLog {
   private recent: AuditEvent[] = [];
   private pending: Promise<void> = Promise.resolve();
+  private writeFailed=false;
   constructor(private file: string) {}
   record(action: string, outcome: Outcome, actor = 'anonymous', detail?: string) {
     // Never record credentials, bearer tokens, cookie values, raw body or authorization codes.
@@ -27,7 +28,8 @@ export class AuditLog {
     this.pending = this.pending.catch(()=>undefined).then(async () => {
       await mkdir(path.dirname(this.file), {recursive:true,mode:0o700});
       await appendFile(this.file, JSON.stringify(event)+'\n', {encoding:'utf8',mode:0o600});
-    }).catch(()=>{process.stderr.write('Audit write failed; check storage permissions\n');});
+      this.writeFailed=false;
+    }).catch(()=>{this.writeFailed=true;process.stderr.write('Audit write failed; check storage permissions\n');});
   }
   async list(limit = 30): Promise<AuditEvent[]> {
     // Read the file rather than trusting only in-memory state after restart.
@@ -46,4 +48,9 @@ export class AuditLog {
     } catch { return this.recent.slice(-limit).reverse(); }
   }
   async flush() {await this.pending;}
+  async ensureHealthy() {await this.pending;if(this.writeFailed)throw new Error('Audit persistence is unavailable');}
+  async recordDurable(action:string,outcome:Outcome,actor='anonymous',detail?:string) {
+    this.record(action,outcome,actor,detail);
+    await this.ensureHealthy();
+  }
 }

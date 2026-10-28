@@ -25,7 +25,8 @@ async function fixture(){
     MCP_ALLOWED_TOOLS:'system_status,disk_usage,workspace_list,workspace_read,docker_status,deployment_status,operation_request,operation_execute',
     MCP_ENABLE_WRITES:'true',MCP_READ_ROOT:dir,MCP_WRITE_ROOT:dir,
     MCP_BROKER_SOCKET:path.join(dir,'broker.sock'),MCP_BROKER_SECRET:secret,
-    MCP_AUDIT_FILE:path.join(dir,'audit.jsonl'),MCP_STATE_FILE:path.join(dir,'state.json')
+    MCP_AUDIT_FILE:path.join(dir,'audit.jsonl'),MCP_STATE_FILE:path.join(dir,'state.json'),
+    MCP_CONTROL_FILE:path.join(dir,'control.json')
   });
   return {config,dir};
 }

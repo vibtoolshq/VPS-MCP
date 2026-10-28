@@ -30,7 +30,7 @@ test('OAuth client registrations persist securely across re-instantiation',()=>{
 
 test('corrupt OAuth persistence refuses to start rather than silently resetting',()=>{
   const file=join(tmpdir(),'vps-mcp-corrupt-'+randomUUID()+'.json');
-  writeFileSync(file,'{"version":999,"clients":[],"refresh":[]}');
+  writeFileSync(file,'{"version":999,"clients":[],"refresh":[]}',{mode:0o600});
   const config=loadConfig({ADMIN_PASSWORD_HASH:hashPassword('long-test-admin-password-2026'),MCP_STATE_FILE:file});
   assert.throws(()=>new OAuthService(config),/persisted OAuth state/);
 });
