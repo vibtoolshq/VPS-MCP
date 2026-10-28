@@ -36,7 +36,7 @@ The panel supports:
 
 Use `@` for the root domain and a single label such as `www` for a direct subdomain. For nested subdomains, use the complete in-zone name, e.g. `api.stage.example.org`. Changes to unsupported record types (such as NS/SOA/CAA) are not exposed.
 
-To create a record, enter name/type/content/TTL, review the dialog and submit. To edit, select **Edit** on the desired row; the record type is intentionally fixed. To delete, select **Delete** and confirm twice. The server validates the record ID, zone membership and record name/type again. **A deletion is permanent on Cloudflare** and can interrupt website/email service.
+To create a record, enter name/type/content/TTL, review the dialog and submit. To edit, select **Edit** on the desired row; the record type is intentionally fixed. To delete, select **Delete** and confirm twice. The server validates record ID, zone membership, record name/type and the previously displayed content again. If the record changed since it was loaded, it rejects the edit/delete; reload before retrying. **A deletion is permanent on Cloudflare** and can interrupt website/email service.
 
 Cloudflare may reject record conflicts or unsupported proxy/TTL combinations. Review the value and DNS rules before retrying. DNS caching means new records can take time to be observed across clients.
 
@@ -58,8 +58,8 @@ POST /api/dns/connect   # {zoneId,token}
 POST /api/dns/disconnect
 GET  /api/dns/records
 POST /api/dns/record    # {action:"create",record:{type,name,content,ttl,proxied,priority?}}
-POST /api/dns/record    # {action:"update",id,record:{...}}
-POST /api/dns/record    # {action:"delete",id,confirmName,confirmType}
+POST /api/dns/record    # {action:"update",id,expectedContent,record:{...}}
+POST /api/dns/record    # {action:"delete",id,confirmName,confirmType,expectedContent}
 ```
 
 All API paths are same-origin, admin-only. Mutations require CSRF; direct unauthenticated requests are rejected. The connection has independent rate limits and the record endpoints use a fixed, verified Cloudflare zone.

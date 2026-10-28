@@ -82,11 +82,12 @@ test('DNS CRUD validates same-zone names, record types and delete confirmation',
  assert.equal(added.name,'www.example.org');
  assert.equal((await dns.list()).records.length,1);
  await assert.rejects(dns.update('not-a-record-id',record),/invalid_record_id/);
- await assert.rejects(dns.update(recordId,{...record,type:'AAAA',content:'2001:db8::1'}),/record_type_cannot_change/);
- const edited=await dns.update(recordId,{...record,content:'203.0.113.99'});
+ await assert.rejects(dns.update(recordId,{...record,type:'AAAA',content:'2001:db8::1'},'203.0.113.10'),/record_type_cannot_change/);
+ await assert.rejects(dns.update(recordId,{...record,content:'203.0.113.99'},'old-stale-value'),/dns_record_changed_refresh_required/);
+ const edited=await dns.update(recordId,{...record,content:'203.0.113.99'},'203.0.113.10');
  assert.equal(edited.content,'203.0.113.99');
- await assert.rejects(dns.remove(recordId,'bad.example.org','A'),/dns_record_changed_refresh_required/);
- await dns.remove(recordId,'www.example.org','A');
+ await assert.rejects(dns.remove(recordId,'bad.example.org','A','203.0.113.99'),/dns_record_changed_refresh_required/);
+ await dns.remove(recordId,'www.example.org','A','203.0.113.99');
  assert.equal((await dns.list()).records.length,0);
  assert.ok(f.requests.some(x=>x.method==='DELETE'));
 });
@@ -121,8 +122,8 @@ test('Admin API enforces auth, CSRF, provider connect and record CRUD without to
   const list=await fetch(url+'/api/dns/records',{headers:{cookie}});
   const res=await list.json() as {records:{name:string}[]};
   assert.equal(res.records[0]?.name,'_dmarc.example.org');
-  assert.equal((await api('/api/dns/record',{action:'delete',id:recordId,confirmName:'wrong.example.org',confirmType:'TXT'},cookie,csrf)).status,409);
-  assert.equal((await api('/api/dns/record',{action:'delete',id:recordId,confirmName:'_dmarc.example.org',confirmType:'TXT'},cookie,csrf)).status,200);
+  assert.equal((await api('/api/dns/record',{action:'delete',id:recordId,confirmName:'wrong.example.org',confirmType:'TXT',expectedContent:'v=DMARC1; p=none'},cookie,csrf)).status,409);
+  assert.equal((await api('/api/dns/record',{action:'delete',id:recordId,confirmName:'_dmarc.example.org',confirmType:'TXT',expectedContent:'v=DMARC1; p=none'},cookie,csrf)).status,200);
   assert.equal((await api('/api/dns/disconnect',{},cookie,csrf)).status,200);
   assert.equal((await fetch(url+'/api/dns/records',{headers:{cookie}})).status,409);
  }finally{await app.shutdown();}

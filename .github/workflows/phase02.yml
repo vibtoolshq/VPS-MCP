@@ -61,10 +61,14 @@ jobs:
           bash scripts/apply-network.sh
           curl --fail --silent http://127.0.0.1:3000/health
           grep -qx 'MCP_BIND_PORT=3000' .env
+          # Ensure private provider credentials are included in backup and isolated restore.
+          # This is a FAKE token: no real Cloudflare account is contacted by CI.
+          docker compose exec -T api node -e 'const fs=require("node:fs");fs.writeFileSync("/data/dns-provider.json",JSON.stringify({version:1,zoneId:"a".repeat(32),zoneName:"example.org",token:"fake-test-token-with-32-characters"}),{mode:0o600})'
           bash scripts/backup.sh "$RUNNER_TEMP/vpsmcp-backup"
           backup="$(find "$RUNNER_TEMP/vpsmcp-backup" -mindepth 1 -maxdepth 1 -type d | head -1)"
           bash scripts/check-backup.sh "$backup"
           tar -tzf "$backup/data.tar.gz" | grep -q 'admin.json'
+          tar -tzf "$backup/data.tar.gz" | grep -q 'dns-provider.json'
           # Missing .env must not silently reset an existing Docker volume.
           mv .env "$RUNNER_TEMP/vpsmcp-env-saved"
           if bash scripts/install.sh >"$RUNNER_TEMP/reset-check.log" 2>&1; then
@@ -87,6 +91,7 @@ jobs:
               sleep 2
             done
             curl -fsS http://127.0.0.1:3000/api/setup/status | grep -q '"required":false'
+            docker compose exec -T api node -e 'const fs=require("node:fs");const x=JSON.parse(fs.readFileSync("/data/dns-provider.json","utf8"));if(x.zoneName!=="example.org"||x.token!=="fake-test-token-with-32-characters")process.exit(1)'
             curl -fsS -H 'content-type: application/json' -d '{"username":"admin","password":"StrongNewPassphrase-2026!"}' http://127.0.0.1:3000/api/login | grep -q '"ok":true'
             docker compose down --remove-orphans
           )

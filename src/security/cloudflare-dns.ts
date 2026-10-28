@@ -163,18 +163,19 @@ export class CloudflareDns {
   const response=await this.call<{result:any}>(cfg,'POST','zones/'+cfg.zoneId+'/dns_records',plan);
   return project(response.result);
  }
- async update(id:string,input:unknown){
+ async update(id:string,input:unknown,expectedContent:unknown){
   const cfg=this.active();const current=await this.current(id);
   if(!TYPES.includes(current.type as SupportedType))throw new DnsError('unsupported_dns_record_type',400);
+  if(typeof expectedContent!=='string'||current.content!==expectedContent)throw new DnsError('dns_record_changed_refresh_required',409);
   const plan=normalize(input,cfg.zoneName);
   if(plan.type!==current.type)throw new DnsError('record_type_cannot_change');
   const response=await this.call<{result:any}>(cfg,'PUT','zones/'+cfg.zoneId+'/dns_records/'+id,plan);
   return project(response.result);
  }
- async remove(id:string,confirmName:unknown,confirmType:unknown){
+ async remove(id:string,confirmName:unknown,confirmType:unknown,expectedContent:unknown){
   const cfg=this.active();const current=await this.current(id);
   if(!TYPES.includes(current.type as SupportedType))throw new DnsError('unsupported_dns_record_type');
-  if(confirmName!==current.name||confirmType!==current.type)throw new DnsError('dns_record_changed_refresh_required',409);
+  if(confirmName!==current.name||confirmType!==current.type||expectedContent!==current.content)throw new DnsError('dns_record_changed_refresh_required',409);
   await this.call(cfg,'DELETE','zones/'+cfg.zoneId+'/dns_records/'+id);
   return {deleted:true,id};
  }

@@ -2,7 +2,7 @@
 // Dashboard-only client: no auth bypass, no direct privileged broker or terminal calls.
 const $ = id => document.getElementById(id);
 const state = { csrf:'', signedIn:false, mcpEnabled:false, enrollmentSeconds:0, endpoint:'', audit:[], refreshing:false, activeAction:false, countdownEnd:0, networkEditing:false, networkDraftDomain:'', networkResolvedDomain:'' };
-state.dnsConnected=false;state.dnsZone='';state.dnsRecords=[];state.dnsEditingId='';
+state.dnsConnected=false;state.dnsZone='';state.dnsRecords=[];state.dnsEditingId='';state.dnsEditingContent='';
 const put = (id, value) => { $(id).textContent = String(value ?? ''); };
 const asArray = value => Array.isArray(value) ? value : [];
 const formatBytes = value => Number.isFinite(value) && value>=0 ? (value/1073741824).toFixed(1)+' GiB' : '—';
@@ -548,7 +548,7 @@ function dnsSetFormState(){
  if($('dns-proxied').disabled)$('dns-proxied').checked=false;
 }
 function dnsClearEditor(){
- state.dnsEditingId='';
+ state.dnsEditingId='';state.dnsEditingContent='';
  $('dns-type').value='A';$('dns-name').value='';$('dns-content').value='';
  $('dns-ttl').value='1';$('dns-priority').value='10';$('dns-proxied').checked=false;
  $('dns-type').disabled=false;
@@ -569,7 +569,7 @@ function dnsRow(record){
    edit.type='button';edit.className='ghost';edit.textContent='Edit';
    edit.addEventListener('click',()=>{
      if(!state.signedIn||state.activeAction)return;
-     state.dnsEditingId=record.id;
+     state.dnsEditingId=record.id;state.dnsEditingContent=record.content;
      $('dns-type').value=record.type;$('dns-type').disabled=true;
      $('dns-name').value=record.name;$('dns-content').value=record.content;
      $('dns-ttl').value=String(record.ttl);
@@ -591,7 +591,7 @@ function dnsRow(record){
      try{
        await api('/api/dns/record',{method:'POST',
          headers:{'content-type':'application/json','x-csrf-token':state.csrf},
-         body:JSON.stringify({action:'delete',id:record.id,confirmName:record.name,confirmType:record.type})});
+         body:JSON.stringify({action:'delete',id:record.id,confirmName:record.name,confirmType:record.type,expectedContent:record.content})});
        feedback('Record deleted in Cloudflare. DNS caches may take time to update.','success','dns-record-feedback');
        dnsClearEditor();await loadDnsRecords();
      }catch(error){feedback(dnsError(error),'error','dns-record-feedback');}
@@ -667,7 +667,7 @@ $('dns-record-form').addEventListener('submit',async event=>{
  try{
    await api('/api/dns/record',{method:'POST',
      headers:{'content-type':'application/json','x-csrf-token':state.csrf},
-     body:JSON.stringify({action:edit?'update':'create',...(edit?{id:state.dnsEditingId}:{}),record})});
+     body:JSON.stringify({action:edit?'update':'create',...(edit?{id:state.dnsEditingId,expectedContent:state.dnsEditingContent}:{}),record})});
    dnsClearEditor();
    feedback('Cloudflare DNS '+(edit?'updated':'created')+'. DNS propagation may take time.','success','dns-record-feedback');
    await loadDnsRecords();

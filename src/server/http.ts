@@ -226,8 +226,8 @@ export function createHttpServer(config:AppConfig = loadConfig(), dnsFetch:typeo
           await audit.recordDurable('panel.status','success',session.username,'dns-'+String(input.action)+'-authorized');
           let record;
           if(input.action==='create')record=await dnsProvider.create(input.record);
-          else if(input.action==='update')record=await dnsProvider.update(String(input.id||''),input.record);
-          else record=await dnsProvider.remove(String(input.id||''),input.confirmName,input.confirmType);
+          else if(input.action==='update')record=await dnsProvider.update(String(input.id||''),input.record,input.expectedContent);
+          else record=await dnsProvider.remove(String(input.id||''),input.confirmName,input.confirmType,input.expectedContent);
           audit.record('panel.status','success',session.username,'dns-'+String(input.action)+'-completed');
           return json(res,200,{ok:true,result:record});
         }catch(err){return json(res,err instanceof DnsError?err.status:503,
