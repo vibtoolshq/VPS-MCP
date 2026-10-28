@@ -4,7 +4,7 @@
 
 > **Release status (28 October 2026):** The **private, SSH-only deployment** has passed source tests and Docker CI, including first-admin setup, restart, backup and restore. **Public ChatGPT/AI remote connection, public HTTPS/OAuth and privileged Docker/Git operations are not yet live-validated or production-ready.** Do not treat the default installation as an Internet-facing MCP server.
 
-**Language:** বাংলা instructions with English commands and technical terms. Follow the steps in order. Commands in this guide are for Ubuntu 24.04 LTS unless noted.
+**Guide language:** Clear English with copy-paste terminal commands and step-by-step explanations. Commands target Ubuntu 24.04 LTS unless otherwise noted.
 
 ## Table of contents
 
