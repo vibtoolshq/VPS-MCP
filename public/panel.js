@@ -14,13 +14,13 @@ function feedback(message='',kind='error',target='notice'){
 }
 function showLogin(message='',focus=false){
   state.signedIn=false;state.csrf='';
-  $('dashboard').hidden=true;$('logout').hidden=true;$('login-view').hidden=false;
+  $('dashboard').hidden=true;$('setup-view').hidden=true;$('logout').hidden=true;$('login-view').hidden=false;
   if(message)feedback(message,'error','login-message');
   if(focus)$('username').focus();
 }
 function showDashboard(){
   state.signedIn=true;
-  $('login-view').hidden=true;$('dashboard').hidden=false;$('logout').hidden=false;
+  $('login-view').hidden=true;$('setup-view').hidden=true;$('dashboard').hidden=false;$('logout').hidden=false;
 }
 function humanError(error){
   if(error && error.network)return 'Cannot reach the control panel. Check the server or your connection.';
@@ -285,8 +285,14 @@ async function refresh(){
   catch(error){if(state.signedIn)feedback(humanError(error));}
   finally{state.refreshing=false;$('refresh').disabled=false;put('refresh','↻ Refresh');}
 }
+function showSetup(){
+  state.signedIn=false;state.csrf='';
+  $('dashboard').hidden=true;$('login-view').hidden=true;$('logout').hidden=true;$('setup-view').hidden=false;
+}
 async function init(){
   try{
+    const initial=await api('/api/setup/status');
+    if(initial.required){showSetup();return;}
     const session=await api('/api/session');
     if(typeof session.csrf!=='string'||!session.csrf)throw {status:401};
     state.csrf=session.csrf;showDashboard();
@@ -313,6 +319,28 @@ async function runAction(button,request,success){
     if(state.signedIn)feedback(humanError(error));
   }finally{state.activeAction=false;button.disabled=false;}
 }
+$('setup-form').addEventListener('submit',async event=>{
+  event.preventDefault();
+  const button=$('setup-button');button.disabled=true;
+  feedback('Verifying setup token…','success','setup-message');
+  try{
+    await api('/api/setup',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({
+        token:$('setup-token').value,
+        username:$('setup-user').value.trim(),
+        password:$('setup-password').value,
+        confirm:$('setup-confirm').value
+      })});
+    const username=$('setup-user').value.trim();
+    for(const id of ['setup-token','setup-password','setup-confirm'])$(id).value='';
+    $('username').value=username;showLogin();
+    feedback('Account created. Sign in with your new password.','success','login-message');
+  }catch(error){
+    feedback(error?.status===429?'Too many attempts. Retry later.':
+      'Setup failed. Verify the one-time token and choose a strong new password (12+ characters).',
+      'error','setup-message');
+  }finally{button.disabled=false;}
+});
 $('login-form').addEventListener('submit',async event=>{
   event.preventDefault();const button=$('login-button');button.disabled=true;
   feedback('Verifying credentials…','success','login-message');

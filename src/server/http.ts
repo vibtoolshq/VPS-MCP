@@ -14,6 +14,7 @@ import { OAuthService, OAuthError } from '../security/oauth.js';
 import { canRead, type AccessIdentity } from '../security/authorization.js';
 import { ApprovalQueue } from '../security/approvals.js';
 import { PolicyStore } from '../security/policy.js';
+import { AdminSetup } from '../security/admin-setup.js';
 import { AuditLog } from '../security/audit.js';
 import { systemStatus } from '../tools/system.js';
 
@@ -71,6 +72,7 @@ function consentHtml(name:string,id:string,csrfToken:string,writes:boolean){
 }
 export function createHttpServer(config:AppConfig = loadConfig()) {
   const oauth=new OAuthService(config);
+  const setup=new AdminSetup(config);
   const sessions=new SessionManager(config);
   const audit=new AuditLog(config.MCP_AUDIT_FILE);
   const approvals=new ApprovalQueue(audit);
@@ -128,6 +130,27 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
         const content=await readFile(asset);
         res.writeHead(200,{'content-type':MIME[path] || 'application/octet-stream'});return res.end(content);
       }
+      if(path==='/api/setup/status' && req.method==='GET')
+        return json(res,200,{required:setup.required,username:setup.required?'admin':undefined});
+      if(path==='/api/setup' && req.method==='POST'){
+        if(!setup.required)return json(res,409,{error:'already_initialized'});
+        if(!rateAllowed(req,'admin.setup',5))return json(res,429,{error:'too_many_attempts'});
+        const input=await body(req,'json') as Record<string,unknown>;
+        if(typeof input?.token!=='string'||typeof input.username!=='string'||
+          typeof input.password!=='string'||typeof input.confirm!=='string')
+          return json(res,400,{error:'invalid_setup_input'});
+        if(input.password!==input.confirm)return json(res,400,{error:'password_confirmation_mismatch'});
+        try{
+          setup.setup(input.token,input.username,input.password);
+          audit.record('server.start','success','admin','first-account-created');
+          return json(res,200,{ok:true});
+        }catch{
+          audit.record('login','denied','anonymous','setup-rejected');
+          return json(res,403,{error:'setup_token_or_password_rejected'});
+        }
+      }
+      // Fail closed: before setup no login, OAuth or MCP admin features are accessible.
+      if(setup.required)return json(res,503,{error:'first_setup_required'});
       if(path==='/api/login' && req.method==='POST') {
         const input=await body(req,'json') as Record<string,unknown>;
         const username=typeof input?.username==='string'?input.username:'';

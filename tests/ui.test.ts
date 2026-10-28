@@ -10,6 +10,7 @@ function makeHarness() {
   const elements=new Map<string,MockElement>();
   const calls:{url:string;options:Record<string,unknown>}[]=[];
   const responses=new Map<string,{status:number;body:unknown}>();
+  responses.set('/api/setup/status',{status:200,body:{required:false}});
   class MockElement {
     textContent='';
     hidden=false;
@@ -205,4 +206,27 @@ test('advanced UI distinguishes saved switch preferences and effective access',a
  const row=h.elements.get('control-permissions')!.childNodes[0]!;
  assert.equal(row.childNodes[1]!.textContent,'On'); // selected preference
  assert.match(row.childNodes[0]!.childNodes[1]!.textContent,/Currently blocked/);
+});
+
+test('first visit shows mandatory setup, blocks old login and opens login after choosing a new password',async()=>{
+ const h=makeHarness();
+ h.responses.set('/api/setup/status',{status:200,body:{required:true,username:'admin'}});
+ h.responses.set('/api/setup',{status:200,body:{ok:true}});
+ vm.runInContext(js,h.context);
+ await h.flush();
+ assert.equal(h.elements.get('setup-view')!.hidden,false);
+ assert.equal(h.elements.get('login-view')!.hidden,true);
+ assert.equal(h.elements.get('dashboard')!.hidden,true);
+ h.elements.get('setup-token')!.value='private-test-token';
+ h.elements.get('setup-user')!.value='admin';
+ h.elements.get('setup-password')!.value='unique-password-2026';
+ h.elements.get('setup-confirm')!.value='unique-password-2026';
+ await h.fire('setup-form','submit');
+ assert.equal(h.elements.get('setup-view')!.hidden,true);
+ assert.equal(h.elements.get('login-view')!.hidden,false);
+ assert.equal(h.elements.get('username')!.value,'admin');
+ assert.equal(h.elements.get('setup-token')!.value,'');
+ const call=h.calls.find(x=>x.url==='/api/setup');
+ assert.ok(call);
+ assert.match(String(call.options.body),/unique-password-2026/);
 });

@@ -3,7 +3,18 @@
 <body><div class="shell">
 <a class="skip-link" href="#main-content">Skip to dashboard</a>
 <header class="topbar"><div class="brand"><span class="brand-icon">V</span><span>VPS<span class="muted">/</span>MCP</span></div><div class="topright"><span id="connection" class="pill">● Local service</span><button id="logout" class="ghost" type="button" hidden>Sign out</button></div></header>
-<main id="main-content"><section id="login-view" class="login-card">
+<main id="main-content"><section id="setup-view" class="login-card" hidden>
+<div class="eyebrow">FIRST VISIT · REQUIRED SETUP</div><h1>Create your admin account</h1>
+<p class="sub">This server has no active default login. Use the one-time setup token printed by the VPS installer, then choose your own secure credentials.</p>
+<form id="setup-form">
+<label for="setup-token">One-time VPS setup token</label><input id="setup-token" type="password" autocomplete="off" required placeholder="From installer terminal">
+<label for="setup-user">New admin username</label><input id="setup-user" value="admin" autocomplete="username" minlength="3" maxlength="64" required>
+<label for="setup-password">New admin password</label><input id="setup-password" type="password" value="Pass@123" autocomplete="new-password" minlength="12" required>
+<p class="sub tight">Starter example: admin / Pass@123. Change the password—this default is rejected.</p>
+<label for="setup-confirm">Confirm new password</label><input id="setup-confirm" type="password" autocomplete="new-password" required>
+<button id="setup-button" type="submit" class="primary">Save secure admin account</button></form>
+<p id="setup-message" role="alert" aria-live="polite" class="feedback"></p>
+</section><section id="login-view" hidden class="login-card">
 <div class="eyebrow">SECURE ACCESS</div><h1>Control panel login</h1><p class="sub">Sign in to inspect your private MCP server. Operations are restricted by policy and require separate approval.</p>
 <form id="login-form"><label for="username">Username</label><input id="username" autocomplete="username" maxlength="64" minlength="3" required placeholder="admin">
 <label for="password">Password</label><input id="password" type="password" autocomplete="current-password" required placeholder="Enter password">

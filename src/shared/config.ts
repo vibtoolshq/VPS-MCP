@@ -7,7 +7,10 @@ const schema = z.object({
   MCP_TLS_CERT_FILE: z.string().optional(),
   MCP_TLS_KEY_FILE: z.string().optional(),
   ADMIN_USERNAME: z.string().min(3).max(64).default('admin'),
-  ADMIN_PASSWORD_HASH: z.string().regex(/^[a-f0-9]{32}:[a-f0-9]{128}$/),
+  ADMIN_PASSWORD_HASH: z.union([z.literal(''),z.string().regex(/^[a-f0-9]{32}:[a-f0-9]{128}$/)]).default(''),
+  MCP_SETUP_TOKEN_HASH: z.string().default(''),
+  MCP_ADMIN_STATE_FILE: z.string().default('./data/admin.json'),
+  MCP_PRIVATE_CONTAINER: z.enum(['true','false']).default('false'),
   OAUTH_ALLOWED_REDIRECT_URIS: z.string().default(''),
   MCP_ALLOWED_TOOLS: z.string().default('system_status,disk_usage'),
   MCP_AUDIT_FILE: z.string().default('./data/audit.jsonl'),
@@ -43,7 +46,7 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
   if (parsed.MCP_HOST !== '127.0.0.1' && parsed.MCP_HOST !== '0.0.0.0') {
     throw new Error('Only 127.0.0.1 or 0.0.0.0 bind is supported');
   }
-  if (parsed.MCP_HOST !== '127.0.0.1' && !tls) {
+  if (parsed.MCP_HOST !== '127.0.0.1' && !tls && parsed.MCP_PRIVATE_CONTAINER!=='true') {
     throw new Error('A public listener requires native HTTPS with a configured certificate');
   }
   const origin = publicUrl || (tls ? '' : `http://127.0.0.1:${parsed.MCP_PORT}`);
@@ -51,10 +54,11 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
   if (parsedOrigin.pathname !== '/' || parsedOrigin.search || parsedOrigin.hash || parsedOrigin.username || parsedOrigin.password) {
     throw new Error('MCP_PUBLIC_URL must be a bare origin');
   }
-  if (parsedOrigin.protocol !== 'https:' && !(parsed.MCP_HOST === '127.0.0.1' && parsedOrigin.href === `http://127.0.0.1:${parsed.MCP_PORT}/`)) {
+  if (parsedOrigin.protocol !== 'https:' && !((parsed.MCP_HOST === '127.0.0.1' || parsed.MCP_PRIVATE_CONTAINER==='true') && parsedOrigin.href === `http://127.0.0.1:${parsed.MCP_PORT}/`)) {
     throw new Error('External MCP origin must use HTTPS; HTTP is local-only');
   }
-  if (parsed.MCP_HOST === '0.0.0.0' && !publicUrl) throw new Error('Public listener requires MCP_PUBLIC_URL');
+  if (parsed.MCP_HOST === '0.0.0.0' && !publicUrl) throw new Error('Container listener requires MCP_PUBLIC_URL');
+  if(parsed.MCP_PRIVATE_CONTAINER==='true' && parsedOrigin.protocol!=='https:' && parsedOrigin.origin!==`http://127.0.0.1:${parsed.MCP_PORT}`) throw new Error('Private container cannot use a public plaintext origin');
   const redirectUris = parsed.OAUTH_ALLOWED_REDIRECT_URIS.split(',').map(v => v.trim()).filter(Boolean);
   for (const uri of redirectUris) {
     const url = new URL(uri);
