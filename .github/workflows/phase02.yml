@@ -51,6 +51,7 @@ jobs:
           done
           curl -fsS http://127.0.0.1:3000/api/setup/status | grep -q '"required":false'
           curl -fsS -H 'content-type: application/json' -d '{"username":"admin","password":"StrongNewPassphrase-2026!"}' http://127.0.0.1:3000/api/login | grep -q '"ok":true'
+          bash -n scripts/apply-network.sh
           bash scripts/backup.sh "$RUNNER_TEMP/vpsmcp-backup"
           backup="$(find "$RUNNER_TEMP/vpsmcp-backup" -mindepth 1 -maxdepth 1 -type d | head -1)"
           bash scripts/check-backup.sh "$backup"

@@ -337,6 +337,35 @@ Therefore you **cannot turn on Docker restart, Git sync, unrestricted terminal, 
 
 Code for the separately restricted broker exists under `src/broker/`, but the default Compose **does not launch it**. Do not attach `/var/run/docker.sock` to the API container to make locked features appear functional.
 
+### New: Compact sidebar Control Console
+
+The logged-in dashboard is now split into **seven lightweight, focused pages**, rather than one long page: **Overview, Tool access, Operations, Clients, Approvals, Domain & SSL, Security audit**. All seven stay inside the same authenticated panel, with a compact sticky sidebar on desktop and a horizontal, scrollable menu on narrow screens. No frontend framework or page reload is needed.
+
+### Domain, SSL & Port controls — important safety boundary
+
+Go to **Domain & SSL** from the sidebar to inspect the **active** origin, internal application port, Docker host bind/port and TLS state. You can save a validated **draft** containing a domain, a private host port (1024–65535) and a private-vs-external-HTTPS plan, and run a read-only DNS resolution check.
+
+**Saving the draft DOES NOT change live DNS, issue TLS certificates, change Docker bindings, or expose the server publicly.** The panel labels planned and applied settings separately.
+
+For a change to the **private Docker host port only**, after saving the draft, open a trusted SSH shell on the VPS and run:
+
+\`\`\`bash
+cd ~/VPS-MCP
+sudo bash scripts/apply-network.sh
+\`\`\`
+
+The host-side helper reads only the validated stored port, updates \`MCP_BIND_PORT\` in the private \`.env\`, rebuilds the localhost-only Compose port mapping without rebuilding the image, checks \`/health\` and restores the previous port if the test fails. The internal MCP server origin remains \`http://127.0.0.1:3000\`; the **PC SSH source port stays 3000**. If the new VPS host port is 3300, use:
+
+\`\`\`bash
+ssh -N -L 3000:127.0.0.1:3300 ubuntu@YOUR_VPS_IP
+\`\`\`
+
+Open \`http://127.0.0.1:3000\` on your computer. Do **not** open port 3300 publicly. Future SSH tunnels must target the new VPS host port. Backups include the saved network draft, and restore allows that configuration file.
+
+**Domain and SSL are NOT one-click-live features in this release:** Real domain ownership, DNS changes, trusted certificate issuance/renewal, HTTPS reverse proxy, public OAuth origin and callback flows still require a separately authorized and externally validated gateway deployment. Selecting "Plan external HTTPS gateway" records intent only; it cannot turn on HTTPS.
+
+Read the [Control Panel & Network Guide](docs/CONTROL-PANEL-NETWORK.md) for exact workflow, validation and limitations.
+
 ## 9. Health checks and verification
 
 From inside the VPS project directory:

@@ -69,3 +69,9 @@ bash scripts/restore.sh /path/to/verified-private-backup-directory
 Run it only in a new empty installation with neither `.env` nor the target Docker project data volume present. It validates paths/regular files in the archive, initializes a new volume, imports state and runs the container. It cannot reset or overwrite an installed server. The CI performs restore in a separate temporary Compose project without deleting the source volume. Existing credentials stay valid; the default starter password does not become active.
 
 If `.env` is deleted while its Docker data volume remains, `install.sh` refuses to create fresh secrets. Restore the original `.env` from backup. Legacy Phase-04 development `.env` files are not silently migrated into the Docker profile; backup and review before migration.
+
+## 6. Control Panel sidebar and private port change
+
+The dashboard is now organized into seven compact sidebar pages; **Domain & SSL** can stage a validated domain, a future HTTPS plan, and private Docker host port (default 3000). DNS checking is read-only. Saving does **not** apply public DNS, SSL or Docker changes.
+
+To apply **only** a new private host port, sign in over SSH and run `sudo bash scripts/apply-network.sh`. It updates `.env` `MCP_BIND_PORT`, verifies health and rolls back on failure. Reconnect your local SSH tunnel with laptop source port 3000 and the selected VPS destination port. Details: [Control Panel & Network Guide](CONTROL-PANEL-NETWORK.md).

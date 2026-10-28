@@ -82,8 +82,12 @@ test('UI markup, accessibility and CSP-safe text rendering are consistent',()=>{
   const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1]);
   assert.equal(new Set(ids).size,ids.length,'Duplicate UI element id');
   const present=new Set(ids);
-  const requested=new Set([...js.matchAll(/(?:\$\(|\bput\()\s*'([^']+)'/g)].map(m=>m[1]));
+  const requested=new Set([...js.matchAll(/(?:\$\(|\bput\()\s*'([^']+)'/g)].map(m=>m[1]).filter(id=>!['page-','nav-'].includes(id)));
   for(const id of requested)assert.ok(present.has(id),'Missing element: '+id);
+  for(const page of ['overview','tools','operations','clients','approvals','network','security']){
+    assert.ok(present.has('page-'+page),'Missing page '+page);
+    assert.ok(present.has('nav-'+page),'Missing nav '+page);
+  }
   for(const id of ['login-form','enrollment-toggle','approval-card','mcp-toggle','audit-search','copy-endpoint'])assert.ok(present.has(id));
   assert.match(html,/name="viewport"/);
   assert.match(html,/<label\b[^>]*for="username"/);

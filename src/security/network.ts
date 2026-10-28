@@ -21,8 +21,11 @@ export class NetworkSettings {
  constructor(private readonly config:AppConfig){
   this.plan={version:1,domain:'',hostPort:config.MCP_BIND_PORT,sslMode:'private-only'};
   const file=config.MCP_NETWORK_DRAFT_FILE;
-  if(existsSync(file)){
-   const stat=lstatSync(file);
+  let stat;
+  try {stat=lstatSync(file);} catch(error){
+   if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;
+  }
+  if(stat){
    if(!stat.isFile()||(stat.mode&0o077)!==0)throw Error('Network draft must be private');
    this.plan=schema.parse(JSON.parse(readFileSync(file,'utf8')));
   }
