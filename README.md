@@ -4,6 +4,20 @@ A lightweight, portable **Node.js + TypeScript MCP server** with an OAuth-secure
 
 > **Phase 04 — implementation & CI verification.** Controlled workspace, Docker and Git deployment tools are added, with write access opt-in and gated by OAuth scope, admin approval and a separate local broker. **Docker/Compose packaging, VPS deployment and a live ChatGPT connection remain incomplete.** Do not expose this development build publicly.
 
+## Advanced access control panel
+
+The compact login-verified panel now includes **tool-by-tool and client-by-client access management**. It is backed by server-enforced, persistent settings—not decorative switches.
+
+- **Global tool access:** all eight known MCP tools are shown; tools outside the configured `MCP_ALLOWED_TOOLS` ceiling are visible as locked and cannot be activated.
+- **Client permissions:** list registered OAuth clients, set per-client `vps:read` / `vps:write` policy gates and individually disable/enable tools for each client.
+- **Write operations:** pause the configured write gate or disable `file.create`, `docker.restart`, and `deploy.sync` individually. Existing OAuth scope, environment flags, allowlists, broker and single-use manual approval remain mandatory.
+- **Lifecycle:** revoke a registered client and invalidate its active and refresh tokens.
+- **Existing protections:** authenticated login, CSRF checks, master MCP stop switch, 5-minute OAuth enrollment window, audit entries, pending approvals and system statistics are preserved.
+
+Control state is stored in **`data/policy.json`** by default, with restricted permissions. You can customize the location using `MCP_POLICY_FILE`. The independent master kill switch remains in `MCP_CONTROL_FILE`.
+
+Read **[Advanced Control Panel Guide](docs/ADVANCED-CONTROL-PANEL.md)** for the exact permission model, endpoints and limitations. The UI cannot enable unrestricted shell commands, grant root privileges, override environment hard limits, or manage system services without a separately designed privileged backend.
+
 ## Security audit after Phase 04
 
 A post-Phase-04 source and GitHub CI audit found and addressed several issues. **New installations require admin-controlled five-minute OAuth client enrollment**, and disabling MCP in the panel now remains disabled across restarts. Password verification no longer blocks Node's HTTP event loop, critical write operations fail closed when the local audit log cannot be persisted, and unsafe workspace directory permissions are rejected.
