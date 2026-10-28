@@ -89,7 +89,28 @@ test('network change fails closed when a durable audit record cannot be written'
   const changed=await fetch(base+'/api/network/plan',{method:'POST',
    headers:{cookie,'x-csrf-token':csrf,'content-type':'application/json'},
    body:JSON.stringify({domain:'mcp.example.org',hostPort:4400,sslMode:'private-only'})});
-  assert.equal(changed.status,400);
+  assert.equal(changed.status,503);
   await assert.rejects(access(cfg.MCP_NETWORK_DRAFT_FILE));
+ }finally{await app.shutdown();}
+});
+
+test('network storage error returns 503 without claiming a staged setting',async()=>{
+ const {cfg}=await fixture();
+ const app=createHttpServer(cfg);
+ await mkdir(cfg.MCP_NETWORK_DRAFT_FILE); // Appears after startup, blocks atomic rename.
+ await new Promise<void>(resolve=>app.server.listen(0,'127.0.0.1',resolve));
+ const base='http://127.0.0.1:'+(app.server.address() as AddressInfo).port;
+ try{
+  const login=await fetch(base+'/api/login',{method:'POST',
+   headers:{'content-type':'application/json'},body:JSON.stringify({username:'admin',password})});
+  assert.equal(login.status,200);
+  const cookie=(login.headers.get('set-cookie')||'').split(';')[0];
+  const {csrf}=await login.json() as {csrf:string};
+  const result=await fetch(base+'/api/network/plan',{method:'POST',
+   headers:{cookie,'x-csrf-token':csrf,'content-type':'application/json'},
+   body:JSON.stringify({domain:'mcp.example.org',hostPort:3355,sslMode:'private-only'})});
+  assert.equal(result.status,503);
+  assert.equal((await result.json() as {error:string}).error,'network_storage_unavailable');
+  assert.equal((await (await fetch(base+'/api/status',{headers:{cookie}})).json() as {network:{draft:{hostPort:number}}}).network.draft.hostPort,3000);
  }finally{await app.shutdown();}
 });

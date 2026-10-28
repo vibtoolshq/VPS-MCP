@@ -28,6 +28,7 @@ function humanError(error){
   if(error && error.status===403)return 'Request denied. Check access permissions or the current session.';
   if(error && error.status===409)return 'This action expired or was already handled. Refresh and try again.';
   if(error && error.status===429)return 'Too many requests. Try again later.';
+  if(error && error.status===503)return 'Server configuration or audit storage is unavailable. No change was confirmed. Check service logs.';
   return 'The request failed. Refresh the panel and try again.';
 }
 async function api(url,options={}){

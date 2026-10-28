@@ -194,18 +194,20 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
         const session=authenticated(req,res,sessions);if(!session)return;
         if(!csrf(req,res,sessions,session))return;
         const input=await body(req,'json');
+        let validated;
+        try{ validated=network.validate(input); }
+        catch{return json(res,400,{error:'invalid_network_plan'});}
         try{
-          const validated=network.validate(input);
-          // Ensure a durable authorization-intent record exists before changing state.
-          // The subsequent completion record must not misreport a successful write
-          // as failed merely because the audit volume becomes unavailable afterward.
+          // The durable authorization-intent must exist before changing storage.
           await audit.recordDurable('panel.status','success',session.username,'network-plan-authorized');
-          const planned=network.save(validated);
-          audit.record('panel.status','success',session.username,'network-plan-staged');
-          return json(res,200,{ok:true,network:planned});
-        }catch{
-          return json(res,400,{error:'invalid_network_plan_or_storage'});
-        }
+        }catch{return json(res,503,{error:'audit_storage_unavailable'});}
+        let planned;
+        try{ planned=network.save(validated); }
+        catch{return json(res,503,{error:'network_storage_unavailable'});}
+        // This completion entry is best-effort: a committed plan is never
+        // reported as failed because this second audit append fails.
+        audit.record('panel.status','success',session.username,'network-plan-staged');
+        return json(res,200,{ok:true,network:planned});
       }
       if(path==='/api/mcp' && req.method==='POST'){
         const session=authenticated(req,res,sessions);if(!session)return;
