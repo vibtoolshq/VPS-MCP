@@ -29,6 +29,14 @@ async function withServer(work:(base:string)=>Promise<void>){
   finally {await app.shutdown();}
 }
 async function register(base:string){
+  const signed=await login(base);
+  assert.equal(signed.status,200);
+  const cookie=(signed.headers.get('set-cookie')||'').split(';')[0];
+  const {csrf}=await signed.json() as {csrf:string};
+  const window=await fetch(base+'/api/enrollment',{method:'POST',
+    headers:{cookie,'x-csrf-token':csrf,'content-type':'application/json'},
+    body:JSON.stringify({enabled:true})});
+  assert.equal(window.status,200);
   return fetch(base+'/oauth/register',{method:'POST',headers:{'content-type':'application/json'},
     body:JSON.stringify({client_name:'CI Test',redirect_uris:[callback],token_endpoint_auth_method:'none'})});
 }
@@ -94,7 +102,7 @@ test('login, cookie, CSRF, callback allowlist and rate-limited bad credentials',
     const bad=await login(base,false);assert.equal(bad.status,401);
     const disallowed=await fetch(base+'/oauth/register',{method:'POST',headers:{'content-type':'application/json'},
       body:JSON.stringify({redirect_uris:['https://evil.example/callback']})});
-    assert.equal(disallowed.status,400);
+    assert.equal(disallowed.status,403); // registration is closed until an admin opens enrollment
     const signed=await login(base);assert.equal(signed.status,200);
     const cookie=(signed.headers.get('set-cookie')||'').split(';')[0];
     const status=await fetch(base+'/api/status',{headers:{cookie}});assert.equal(status.status,200);

@@ -1,4 +1,5 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
+import { validateRelative } from '../tools/filesystem.js';
 import * as z from 'zod/v4';
 import type { AuditLog } from './audit.js';
 
@@ -12,7 +13,11 @@ type Decision='pending'|'approved'|'denied';
 type Approval={id:string;clientId:string;operation:WriteOperation;status:Decision;expires:number;busy:boolean};
 const id=()=>randomBytes(24).toString('base64url');
 function summary(op:WriteOperation) {
-  if(op.type==='file.create')return 'Create new file: '+op.path+' ('+Buffer.byteLength(op.content)+' bytes)';
+  if(op.type==='file.create'){
+    const digest=createHash('sha256').update(op.content,'utf8').digest('hex').slice(0,16);
+    const preview=op.content.slice(0,100).replace(/[\r\n\t]/g,' ');
+    return 'Create file '+op.path+' ('+Buffer.byteLength(op.content)+' bytes, SHA256 '+digest+', preview: '+preview+')';
+  }
   if(op.type==='docker.restart')return 'Restart allowlisted Docker container: '+op.container;
   return 'Fast-forward pull of configured deployment Git repository';
 }
@@ -31,6 +36,7 @@ export class ApprovalQueue {
     this.cleanup();
     if(this.items.size>=200)throw new Error('Approval queue full');
     const op=operationSchema.parse(input);
+    if(op.type==='file.create') validateRelative(op.path);
     const item:Approval={id:id(),clientId,operation:op,status:'pending',expires:Date.now()+5*60_000,busy:false};
     this.items.set(item.id,item);
     this.audit?.record('operation.propose','success',clientId,op.type);

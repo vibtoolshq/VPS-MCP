@@ -75,6 +75,15 @@ test('one-time approval must match client identity and cannot replay',async()=>{
 });
 
 async function exchange(base:string,scope:string){
+  const enrollmentLogin=await fetch(base+'/api/login',{method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify({username:'admin',password})});
+  assert.equal(enrollmentLogin.status,200);
+  const enrollmentCookie=(enrollmentLogin.headers.get('set-cookie')||'').split(';')[0];
+  const enrollmentCsrf=(await enrollmentLogin.json() as {csrf:string}).csrf;
+  const enrollment=await fetch(base+'/api/enrollment',{method:'POST',headers:{
+    cookie:enrollmentCookie,'x-csrf-token':enrollmentCsrf,'content-type':'application/json'
+  },body:JSON.stringify({enabled:true})});
+  assert.equal(enrollment.status,200);
   const registered=await fetch(base+'/oauth/register',{method:'POST',headers:{'content-type':'application/json'},
     body:JSON.stringify({client_name:'CI',redirect_uris:[callback]})});
   assert.equal(registered.status,201);

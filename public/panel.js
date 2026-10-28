@@ -25,6 +25,8 @@ async function refresh() {
     put('uptime',Math.floor(data.system.uptimeSeconds / 3600)+' hours');
     put('access-mode',data.publicHttps?'HTTPS':'Loopback only');
     mcpEnabled=data.mcpEnabled;
+    put('enrollment-state',data.enrollmentSeconds>0?'Open · '+data.enrollmentSeconds+'s remaining':'Enrollment closed');
+    put('enrollment-toggle',data.enrollmentSeconds>0?'Close enrollment':'Open for 5 min');
     put('mcp-toggle',mcpEnabled?'Disable MCP':'Enable MCP');
     put('mcp-toggle-desc',mcpEnabled?'MCP requests enabled':'MCP requests blocked');
     $('approval-card').hidden=!data.writesEnabled;
@@ -97,6 +99,15 @@ $('logout').addEventListener('click',async()=>{
   location.assign('/');
 });
 $('refresh').addEventListener('click',refresh);
+$('enrollment-toggle').addEventListener('click',async()=>{
+  const button=$('enrollment-toggle');button.disabled=true;
+  try{
+    const active=$('enrollment-state').textContent.startsWith('Open');
+    await api('/api/enrollment',{method:'POST',headers:{'content-type':'application/json','x-csrf-token':csrf},body:JSON.stringify({enabled:!active})});
+    await refresh();
+  }catch(error){put('notice',error.message);}
+  finally{button.disabled=false;}
+});
 $('mcp-toggle').addEventListener('click',async()=>{
   $('mcp-toggle').disabled=true;
   try {await api('/api/mcp',{method:'POST',headers:{'content-type':'application/json','x-csrf-token':csrf},body:JSON.stringify({enabled:!mcpEnabled})});await refresh();}

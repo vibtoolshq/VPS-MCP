@@ -17,6 +17,7 @@ test('OAuth client registrations persist securely across re-instantiation',()=>{
     OAUTH_ALLOWED_REDIRECT_URIS:redirect
   });
   const first=new OAuthService(config);
+  first.setEnrollment(true);
   const registered=first.register({client_name:'Test Connector',redirect_uris:[redirect]});
   assert.match(registered.client_id,/^vpsmcp_/);
   assert.equal(first.stats().clients,1);

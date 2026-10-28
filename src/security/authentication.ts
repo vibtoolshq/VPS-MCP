@@ -37,6 +37,10 @@ export class SessionManager {
   }
   login(username: string, password: string, address: string): string | null {
     const now = Date.now();
+    if(this.failures.size>1024) {
+      for(const [key,value] of this.failures) if(value.until<=now)this.failures.delete(key);
+      if(this.failures.size>1024 && !this.failures.has(address))return null;
+    }
     const attempted = this.failures.get(address);
     if (attempted && attempted.until > now && attempted.count >= MAX_FAILURES) return null;
     // Always run scrypt even when username is invalid.
@@ -47,6 +51,8 @@ export class SessionManager {
       return null;
     }
     this.failures.delete(address);
+    for(const [id,session] of this.sessions) if(session.expires<=now) this.sessions.delete(id);
+    if(this.sessions.size>=64) return null;
     const sid = token();
     this.sessions.set(sid, {username, csrf:token(), expires:now + SESSION_TTL});
     return sid;

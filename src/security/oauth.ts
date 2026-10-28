@@ -26,6 +26,19 @@ export class OAuthService {
   private codes = new Map<string,Code>();
   private access = new Map<string,AccessIdentity>();
   private refresh = new Map<string,Refresh>();
+  private registrationUntil = 0;
+  private registrationCount = 0;
+  private static readonly MAX_PENDING = 48;
+  private static readonly MAX_CODES = 96;
+  private static readonly MAX_ACTIVE = 256;
+  private static readonly MAX_REFRESH = 256;
+  // Registration is normally closed. Administrator can allow a short enrollment period.
+  enrollment() { return Math.max(0,Math.ceil((this.registrationUntil-Date.now())/1000)); }
+  setEnrollment(enabled:boolean) {
+    this.registrationUntil=enabled?Date.now()+5*60_000:0;
+    this.registrationCount=0;
+    return this.enrollment();
+  }
   constructor(private config:AppConfig) {
     const file=config.MCP_STATE_FILE;
     if(!existsSync(file)) return;
@@ -36,9 +49,11 @@ export class OAuthService {
       throw new Error('Invalid persisted OAuth state; refusing to overwrite');
     }
     for(const client of stored.clients) {
-      if(typeof client.id==='string' && Array.isArray(client.redirects) && typeof client.name==='string') {
-        this.clients.set(client.id,client);
-      } else throw new Error('Malformed OAuth client state');
+      if(typeof client.id!=='string' || typeof client.name!=='string' || !Array.isArray(client.redirects)) {
+        throw new Error('Malformed OAuth client state');
+      }
+      // Removing an allowed redirect URI in configuration revokes its old registrations.
+      if(client.redirects.every(uri=>this.config.redirectUris.includes(uri))) this.clients.set(client.id,client);
     }
     for(const [hash,token] of stored.refresh) {
       if(typeof hash==='string' && token && typeof token.until==='number' && token.until>Date.now()) {
@@ -85,7 +100,8 @@ export class OAuthService {
   }
   register(payload:unknown) {
     this.cleanup();
-    if(this.clients.size>=32) throw new OAuthError('registration_limit',429);
+    if(this.enrollment()===0) throw new OAuthError('registration_closed',403);
+    if(this.clients.size>=32 || this.registrationCount>=5) throw new OAuthError('registration_limit',429);
     if(!payload || typeof payload!=='object' || Array.isArray(payload)) throw new OAuthError('invalid_client_metadata');
     const data=payload as Record<string,unknown>;
     const redirects=data.redirect_uris;
@@ -100,6 +116,7 @@ export class OAuthService {
     const name=typeof data.client_name==='string' ? data.client_name.slice(0,60) : 'MCP client';
     this.clients.set(id,{id,redirects,name});
     this.persist();
+    this.registrationCount++;
     return {
       client_id:id,
       client_id_issued_at:Math.floor(Date.now()/1000),
@@ -126,6 +143,7 @@ export class OAuthService {
     if(resource!==this.resource) throw new OAuthError('invalid_target');
     const state=params.get('state')||'';
     if(state.length>512) throw new OAuthError('invalid_request');
+    if(this.pending.size>=OAuthService.MAX_PENDING) throw new OAuthError('too_many_authorizations',429);
     const id=random();
     const request:Pending={id,clientId,redirect,challenge,resource,state,scope:requested.join(' '),until:Date.now()+5*60_000};
     this.pending.set(id,request);
@@ -139,6 +157,7 @@ export class OAuthService {
     const url=new URL(pending.redirect);
     if(!approved) url.searchParams.set('error','access_denied');
     else {
+      if(this.codes.size>=OAuthService.MAX_CODES) throw new OAuthError('too_many_codes',429);
       const code=random();
       const {id:unused,until:unusedTime,...rest}=pending;
       this.codes.set(digest(code),{...rest,until:Date.now()+90_000});
@@ -170,6 +189,7 @@ export class OAuthService {
       const token=fields.get('refresh_token')||'';
       const entry=this.refresh.get(digest(token));
       this.refresh.delete(digest(token)); // rotating refresh tokens
+      if(entry) this.persist(); // Reuse or mismatch cannot resurrect after a restart.
       if(!entry || entry.clientId!==clientId || (fields.get('resource') && fields.get('resource')!==entry.resource)) {
         throw new OAuthError('invalid_grant');
       }
@@ -178,6 +198,9 @@ export class OAuthService {
     throw new OAuthError('unsupported_grant_type');
   }
   private issue(clientId:string,scope:string,resource:string){
+    this.cleanup();
+    if(this.access.size>=OAuthService.MAX_ACTIVE || this.refresh.size>=OAuthService.MAX_REFRESH)
+      throw new OAuthError('token_capacity_reached',503);
     const access=random(), refresh=random();
     const identity:AccessIdentity={clientId,scope,resource,expires:Date.now()+60*60_000};
     this.access.set(digest(access),identity);

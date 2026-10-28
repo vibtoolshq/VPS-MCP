@@ -153,7 +153,7 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
           mcpEnabled,endpoint:config.origin+'/mcp',allowedTools:config.allowedTools,
           oauth:oauth.stats(), system:systemStatus(),publicHttps:config.secureCookies,
           audit:await audit.list(20),writesEnabled:config.writesEnabled,
-          pendingApprovals:approvals.pending()
+          pendingApprovals:approvals.pending(), enrollmentSeconds:oauth.enrollment()
         });
       }
       if(path==='/api/mcp' && req.method==='POST'){
@@ -178,6 +178,15 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
         }catch {
           return json(res,409,{error:'approval_missing_or_expired'});
         }
+      }
+      if(path==='/api/enrollment' && req.method==='POST'){
+        const session=authenticated(req,res,sessions);if(!session)return;
+        if(!csrf(req,res,sessions,session))return;
+        const payload=await body(req,'json') as Record<string,unknown>;
+        if(typeof payload?.enabled!=='boolean')return json(res,400,{error:'invalid_enrollment'});
+        const enrollmentSeconds=oauth.setEnrollment(payload.enabled);
+        audit.record('oauth.register','success',session.username,enrollmentSeconds?'enrollment-open':'enrollment-closed');
+        return json(res,200,{enrollmentSeconds});
       }
       if(path==='/oauth/register' && req.method==='POST'){
         if(!rateAllowed(req,'oauth.register',10))return json(res,429,{error:'rate_limited'},{'retry-after':'60'});
@@ -216,8 +225,6 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
       }
       if(path==='/mcp') {
         if(!mcpEnabled)return json(res,503,{error:'mcp_disabled'});
-        const size=Number(req.headers['content-length']||'0');
-        if(!Number.isSafeInteger(size)||size>64*1024)return json(res,413,{error:'request_too_large'});
         if(req.method!=='POST') return text(res,405,'Method not allowed',{'allow':'POST'});
         const identity=oauth.verify(req);
         if(!canRead(identity,config)){
@@ -226,6 +233,14 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
             'www-authenticate':`Bearer resource_metadata="${oauth.metadataUrl}", scope="vps:read"`
           });
         }
+        // The SDK consumes the raw request stream. Reject unbounded chunked uploads
+        // rather than trusting a missing Content-Length as a zero-byte body.
+        const rawLength=req.headers['content-length'];
+        const size=Number(rawLength);
+        if(req.headers['transfer-encoding'] || rawLength===undefined)
+          return json(res,411,{error:'content_length_required'});
+        if(!Number.isSafeInteger(size)||size<0||size>64*1024)
+          return json(res,413,{error:'request_too_large'});
         audit.record('mcp.request','success',identity!.clientId);
         return await requestContext.run(identity!,()=>nodeHandler(req,res));
       }
