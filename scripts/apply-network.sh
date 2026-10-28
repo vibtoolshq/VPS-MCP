@@ -6,6 +6,9 @@ umask 077
 cd "$(dirname "$0")/.."
 [[ -f .env ]] || { echo "Install VPS-MCP first." >&2; exit 1; }
 grep -qx 'MCP_PRIVATE_CONTAINER=true' .env || { echo "Private Compose installation required." >&2; exit 1; }
+command -v flock >/dev/null || { echo 'flock is required to prevent concurrent port applies.' >&2; exit 1; }
+exec 9>.network-apply.lock
+flock -n 9 || { echo 'Another port change is already in progress.' >&2; exit 1; }
 port="$(docker compose exec -T api node -e '
 const fs=require("node:fs");
 const data=JSON.parse(fs.readFileSync("/data/network-draft.json","utf8"));

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,readFile,chmod,stat,symlink} from 'node:fs/promises';
+import {mkdtemp,readFile,chmod,stat,symlink,mkdir,access} from 'node:fs/promises';
 import path from 'node:path';
 import {tmpdir} from 'node:os';
 import type {AddressInfo} from 'node:net';
@@ -71,5 +71,25 @@ test('network API requires admin session and CSRF, persists draft and does not e
   assert.equal(stored.network.applied.ssl,'not-configured');
   const status=await fetch(base+'/api/status',{headers:{cookie}});
   assert.equal((await status.json() as {network:{draft:{domain:string}}}).network.draft.domain,'mcp.example.com');
+ }finally{await app.shutdown();}
+});
+
+test('network change fails closed when a durable audit record cannot be written',async()=>{
+ const {cfg}=await fixture();
+ await mkdir(cfg.MCP_AUDIT_FILE);
+ const app=createHttpServer(cfg);
+ await new Promise<void>(resolve=>app.server.listen(0,'127.0.0.1',resolve));
+ const base='http://127.0.0.1:'+(app.server.address() as AddressInfo).port;
+ try{
+  const login=await fetch(base+'/api/login',{method:'POST',
+   headers:{'content-type':'application/json'},body:JSON.stringify({username:'admin',password})});
+  assert.equal(login.status,200);
+  const cookie=(login.headers.get('set-cookie')||'').split(';')[0];
+  const {csrf}=await login.json() as {csrf:string};
+  const changed=await fetch(base+'/api/network/plan',{method:'POST',
+   headers:{cookie,'x-csrf-token':csrf,'content-type':'application/json'},
+   body:JSON.stringify({domain:'mcp.example.org',hostPort:4400,sslMode:'private-only'})});
+  assert.equal(changed.status,400);
+  await assert.rejects(access(cfg.MCP_NETWORK_DRAFT_FILE));
  }finally{await app.shutdown();}
 });

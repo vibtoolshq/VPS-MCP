@@ -1,7 +1,7 @@
 'use strict';
 // Dashboard-only client: no auth bypass, no direct privileged broker or terminal calls.
 const $ = id => document.getElementById(id);
-const state = { csrf:'', signedIn:false, mcpEnabled:false, enrollmentSeconds:0, endpoint:'', audit:[], refreshing:false, activeAction:false, countdownEnd:0 };
+const state = { csrf:'', signedIn:false, mcpEnabled:false, enrollmentSeconds:0, endpoint:'', audit:[], refreshing:false, activeAction:false, countdownEnd:0, networkEditing:false, networkDraftDomain:'', networkResolvedDomain:'' };
 const put = (id, value) => { $(id).textContent = String(value ?? ''); };
 const asArray = value => Array.isArray(value) ? value : [];
 const formatBytes = value => Number.isFinite(value) && value>=0 ? (value/1073741824).toFixed(1)+' GiB' : '—';
@@ -13,7 +13,7 @@ function feedback(message='',kind='error',target='notice'){
   element.classList.toggle('error',kind==='error');
 }
 function showLogin(message='',focus=false){
-  state.signedIn=false;state.csrf='';
+  state.signedIn=false;state.csrf='';state.networkEditing=false;state.networkResolvedDomain='';
   $('dashboard').hidden=true;$('setup-view').hidden=true;$('logout').hidden=true;$('login-view').hidden=false;
   if(message)feedback(message,'error','login-message');
   if(focus)$('username').focus();
@@ -265,15 +265,23 @@ function renderNetwork(network){
   put('network-origin',info.origin || 'Not configured');
   put('network-ssl-status',info.ssl==='native-https-configured'?'Native HTTPS configured':'Not installed (private mode)');
   const draft=network?.draft || {domain:'',hostPort:3000,sslMode:'private-only'};
-  $('network-domain').value=draft.domain || '';
-  $('network-port').value=String(draft.hostPort ?? 3000);
-  $('network-mode').value=draft.sslMode || 'private-only';
-  $('network-check-dns').disabled=!draft.domain;
+  state.networkDraftDomain=draft.domain||'';
+  if(state.networkResolvedDomain && state.networkResolvedDomain!==state.networkDraftDomain){
+    state.networkResolvedDomain='';
+    put('network-dns-result','Not checked for this draft');
+  }
+  // Never discard unsubmitted user input on a periodic status refresh.
+  if(!state.networkEditing){
+    $('network-domain').value=draft.domain || '';
+    $('network-port').value=String(draft.hostPort ?? 3000);
+    $('network-mode').value=draft.sslMode || 'private-only';
+  }
+  $('network-check-dns').disabled=!draft.domain || state.networkEditing;
   const pending=Number(draft.hostPort)!==Number(info.hostPort);
-  put('network-saved',network ? pending?
-    'Draft saved — port change NOT applied. Run the SSH command below to apply safely.':
-    'Current private port and saved draft match. Domain/SSL plans are NOT deployed.':
-    'Network settings are not available on this server version.');
+  put('network-saved',!network?'Network settings are not available on this server version.':
+    state.networkEditing?'Unsaved changes — save the draft before checking DNS or applying a port.':
+    pending?'Draft saved — port change NOT applied. Run the SSH command below to apply safely.':
+    'Current private port and saved draft match. Domain/SSL plans are NOT deployed.');
   $('network-save').disabled=!network;
   $('network-copy-command').disabled=!network;
 }
@@ -322,7 +330,7 @@ async function refresh(){
   finally{state.refreshing=false;$('refresh').disabled=false;put('refresh','↻ Refresh');}
 }
 function showSetup(){
-  state.signedIn=false;state.csrf='';
+  state.signedIn=false;state.csrf='';state.networkEditing=false;state.networkResolvedDomain='';
   $('dashboard').hidden=true;$('login-view').hidden=true;$('logout').hidden=true;$('setup-view').hidden=false;
 }
 async function init(){
@@ -438,6 +446,18 @@ $('write-master').addEventListener('click',async()=>{
 for(const name of Object.keys(PAGES)){
   $('nav-'+name).addEventListener('click',()=>switchPage(name));
 }
+for(const id of ['network-domain','network-port','network-mode']){
+  const markEdited=()=>{
+    state.networkEditing=true;
+    state.networkResolvedDomain='';
+    $('network-check-dns').disabled=true;
+    feedback('','success','network-feedback');
+    put('network-dns-result','Save the draft to check the new domain');
+    put('network-saved','Unsaved changes — click Save network plan.');
+  };
+  $(id).addEventListener('input',markEdited);
+  $(id).addEventListener('change',markEdited);
+}
 $('network-form').addEventListener('submit',async event=>{
   event.preventDefault();
   if(!state.signedIn)return;
@@ -451,10 +471,17 @@ $('network-form').addEventListener('submit',async event=>{
     feedback('Enter a domain before planning external HTTPS.','error','network-feedback');return;
   }
   if(!window.confirm('Save this network configuration as a DRAFT? It will NOT apply DNS, SSL or Docker port changes.'))return;
-  await runAction($('network-save'),()=>api('/api/network/plan',{
-    method:'POST',headers:{'content-type':'application/json','x-csrf-token':state.csrf},
-    body:JSON.stringify({domain,hostPort,sslMode})
-  }),'Network draft saved. Changes are not applied. Use trusted SSH to apply the private port.');
+  await runAction($('network-save'),async()=>{
+    const outcome=await api('/api/network/plan',{
+      method:'POST',headers:{'content-type':'application/json','x-csrf-token':state.csrf},
+      body:JSON.stringify({domain,hostPort,sslMode})
+    });
+    state.networkEditing=false;
+    state.networkResolvedDomain='';
+    put('network-dns-result','Not checked for this draft');
+    feedback('Network plan saved as a draft only. No DNS, SSL or port changes applied.','success','network-feedback');
+    return outcome;
+  },'Network draft saved. Changes are not applied. Use trusted SSH to apply the private port.');
 });
 $('network-check-dns').addEventListener('click',async()=>{
   if(!state.signedIn)return;
@@ -462,6 +489,8 @@ $('network-check-dns').addEventListener('click',async()=>{
   put('network-dns-result','Checking DNS…');
   try{
     const response=await api('/api/network/dns');
+    if(state.networkEditing||response.domain!==state.networkDraftDomain)return;
+    state.networkResolvedDomain=response.domain;
     const ips=[...asArray(response.ipv4),...asArray(response.ipv6)];
     put('network-dns-result',ips.length?ips.join(', '):'No DNS records resolved');
     if(ips.length)feedback('DNS records found; this does not verify SSL or public service availability.','success','network-feedback');

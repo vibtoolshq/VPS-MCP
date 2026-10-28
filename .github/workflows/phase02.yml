@@ -52,6 +52,15 @@ jobs:
           curl -fsS http://127.0.0.1:3000/api/setup/status | grep -q '"required":false'
           curl -fsS -H 'content-type: application/json' -d '{"username":"admin","password":"StrongNewPassphrase-2026!"}' http://127.0.0.1:3000/api/login | grep -q '"ok":true'
           bash -n scripts/apply-network.sh
+          # Verify private host-port apply and reversal on this disposable CI VPS.
+          docker compose exec -T api node -e 'const fs=require("node:fs");fs.writeFileSync("/data/network-draft.json",JSON.stringify({version:1,domain:"",hostPort:3331,sslMode:"private-only"}),{mode:0o600})'
+          bash scripts/apply-network.sh
+          curl --fail --silent -H 'Host: 127.0.0.1:3000' http://127.0.0.1:3331/health
+          grep -qx 'MCP_BIND_PORT=3331' .env
+          docker compose exec -T api node -e 'const fs=require("node:fs");fs.writeFileSync("/data/network-draft.json",JSON.stringify({version:1,domain:"",hostPort:3000,sslMode:"private-only"}),{mode:0o600})'
+          bash scripts/apply-network.sh
+          curl --fail --silent http://127.0.0.1:3000/health
+          grep -qx 'MCP_BIND_PORT=3000' .env
           bash scripts/backup.sh "$RUNNER_TEMP/vpsmcp-backup"
           backup="$(find "$RUNNER_TEMP/vpsmcp-backup" -mindepth 1 -maxdepth 1 -type d | head -1)"
           bash scripts/check-backup.sh "$backup"

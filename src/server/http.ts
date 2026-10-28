@@ -195,8 +195,13 @@ export function createHttpServer(config:AppConfig = loadConfig()) {
         if(!csrf(req,res,sessions,session))return;
         const input=await body(req,'json');
         try{
-          const planned=network.save(input);
-          await audit.recordDurable('panel.status','success',session.username,'network-plan-staged');
+          const validated=network.validate(input);
+          // Ensure a durable authorization-intent record exists before changing state.
+          // The subsequent completion record must not misreport a successful write
+          // as failed merely because the audit volume becomes unavailable afterward.
+          await audit.recordDurable('panel.status','success',session.username,'network-plan-authorized');
+          const planned=network.save(validated);
+          audit.record('panel.status','success',session.username,'network-plan-staged');
           return json(res,200,{ok:true,network:planned});
         }catch{
           return json(res,400,{error:'invalid_network_plan_or_storage'});

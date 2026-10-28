@@ -33,17 +33,21 @@ export class NetworkSettings {
  snapshot(){
   return {applied:{origin:this.config.origin,internalPort:this.config.MCP_PORT,
     hostPort:this.config.MCP_BIND_PORT,
-    hostBind:this.config.MCP_PRIVATE_CONTAINER==='true'?'127.0.0.1':'configured externally',
+    hostBind:this.config.MCP_PRIVATE_CONTAINER==='true'||this.config.MCP_HOST==='127.0.0.1'?'127.0.0.1':'configured externally',
     ssl:this.config.secureCookies?'native-https-configured':'not-configured',
     publicReady:false},draft:this.plan,domainConfigured:false,sslCertificateManaged:false,
     applyInstruction:'sudo bash scripts/apply-network.sh',
     note:'Saving a plan does not change DNS, certificates, public HTTPS or the Docker port. Apply private host port over SSH.'};
  }
- save(input:unknown){
+ validate(input:unknown):NetworkPlan{
   if(!input||typeof input!=='object'||Array.isArray(input))throw Error('Invalid network plan');
   const data=input as Record<string,unknown>;
   const next=schema.parse({version:1,domain:data.domain,hostPort:data.hostPort,sslMode:data.sslMode});
   if(next.sslMode==='external-https'&&!next.domain)throw Error('Domain required for external HTTPS planning');
+  return next;
+ }
+ save(input:unknown){
+  const next=this.validate(input);
   const file=this.config.MCP_NETWORK_DRAFT_FILE;
   mkdirSync(path.dirname(file),{recursive:true,mode:0o700});
   const tmp=file+'.'+randomBytes(8).toString('hex')+'.tmp';

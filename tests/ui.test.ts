@@ -273,6 +273,46 @@ test('network save is a CSRF-protected draft; diagnostics never claim HTTPS appl
  assert.ok(sent);
  assert.equal((sent.options.headers as Record<string,string>)['x-csrf-token'],'network-csrf');
  assert.match(String(sent.options.body),/"hostPort":3344/);
+ h.responses.set('/api/status',{status:200,body:{...h.status,
+   network:{...h.status.network,draft:{domain:'mcp.example.com',hostPort:3344,sslMode:'external-https'}}}});
+ await h.fire('refresh');await h.flush();
  await h.fire('network-check-dns');
  assert.equal(h.elements.get('network-dns-result')!.textContent,'203.0.113.10');
+});
+
+test('unsaved network edits survive status refresh and invalidate stale DNS',async()=>{
+ const h=makeHarness();
+ h.responses.set('/api/session',{status:200,body:{csrf:'edit-csrf'}});
+ h.responses.set('/api/status',{status:200,body:h.status});
+ vm.runInContext(js,h.context);await h.flush();
+ await h.fire('nav-network');
+ h.elements.get('network-domain')!.value='new.example.org';
+ h.elements.get('network-port')!.value='4455';
+ await h.fire('network-domain','input');
+ assert.equal(h.elements.get('network-check-dns')!.disabled,true);
+ await h.fire('refresh');
+ await h.flush();
+ assert.equal(h.elements.get('network-domain')!.value,'new.example.org');
+ assert.equal(h.elements.get('network-port')!.value,'4455');
+ assert.match(h.elements.get('network-saved')!.textContent,/Unsaved changes/);
+ assert.match(h.elements.get('network-dns-result')!.textContent,/Save the draft/);
+});
+test('successful network staging clears dirty state and does not claim live SSL',async()=>{
+ const h=makeHarness();
+ h.responses.set('/api/session',{status:200,body:{csrf:'save-csrf'}});
+ h.responses.set('/api/status',{status:200,body:h.status});
+ h.responses.set('/api/network/plan',{status:200,body:{ok:true}});
+ vm.runInContext(js,h.context);await h.flush();
+ h.elements.get('network-domain')!.value='mcp.example.org';
+ h.elements.get('network-port')!.value='4444';
+ await h.fire('network-domain','input');
+ h.responses.set('/api/status',{status:200,body:{
+   ...h.status,
+   network:{...h.status.network,draft:{domain:'mcp.example.org',hostPort:4444,sslMode:'private-only'}}
+ }});
+ await h.fire('network-form','submit');
+ await h.flush();
+ assert.equal(h.elements.get('network-domain')!.value,'mcp.example.org');
+ assert.match(h.elements.get('network-saved')!.textContent,/port change NOT applied/);
+ assert.equal(h.elements.get('network-ssl-status')!.textContent,'Not installed (private mode)');
 });

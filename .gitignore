@@ -9,3 +9,5 @@ coverage/
 data/
 
 backups/
+
+.network-apply.lock
