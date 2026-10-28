@@ -238,9 +238,19 @@ test('advanced dashboard controls enforce CSRF, global and per-client permission
         operation:{type:'file.create',path:'blocked.txt',content:'no'}
       }});
       assert.equal(denied.isError,true);
+      const actionOn=await api('/api/control/action',{name:'file.create',enabled:true});
+      assert.equal(actionOn.status,200);
+      const queued=await client.callTool({name:'operation_request',arguments:{
+        operation:{type:'file.create',path:'queued.txt',content:'pending'}
+      }});
+      assert.notEqual(queued.isError,true);
+      const beforeRevocation=await fetch(base+'/api/status',{headers:{cookie}});
+      assert.equal(((await beforeRevocation.json()) as {pendingApprovals:{id:string}[]}).pendingApprovals.length,1);
     }finally{await client.close();}
     const revoked=await api('/api/control/revoke-client',{clientId:client_id});
     assert.equal(revoked.status,200);
+    const afterRevocation=await fetch(base+'/api/status',{headers:{cookie}});
+    assert.equal(((await afterRevocation.json()) as {pendingApprovals:{id:string}[]}).pendingApprovals.length,0);
     const response=await fetch(base+'/mcp',{
       method:'POST',headers:{authorization:'Bearer '+access_token,'content-type':'application/json'},
       body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/list',params:{}})

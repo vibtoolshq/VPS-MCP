@@ -67,9 +67,9 @@ function makeHarness() {
       pendingApprovals:[{id:'approved-request',clientId:'testClient',summary:'Create file allowed.txt'}],
       audit:[{at:'2026-10-28T12:00:00.000Z',action:'login',outcome:'success',actor:'admin'}],
       policy:{
-        writeConfigured:true,writePaused:false,writeGatePaused:false,
-        tools:[{name:'system_status',enabled:true,configured:true},{name:'docker_status',enabled:false,configured:false}],
-        actions:[{name:'file.create',enabled:true,configured:true},{name:'deploy.sync',enabled:false,configured:false}]
+        writeConfigured:true,writePaused:false,writeGatePaused:false,writeEffective:true,
+        tools:[{name:'system_status',enabled:true,configured:true,effective:true},{name:'docker_status',enabled:false,configured:false,effective:false}],
+        actions:[{name:'file.create',enabled:true,configured:true,effective:true},{name:'deploy.sync',enabled:false,configured:false,effective:false}]
       },
       clients:[{id:'vpsmcp_'+'a'.repeat(43),name:'ChatGPT Test',redirectUris:['https://example.com/callback'],accessTokens:1,
         scopes:{read:true,write:true},tools:[{name:'system_status',enabled:true,globalEnabled:true}]}]
