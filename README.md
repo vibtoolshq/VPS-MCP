@@ -244,13 +244,7 @@ Leave this tunnel terminal open. Then open on the **same computer**:
 
 **[http://127.0.0.1:3000](http://127.0.0.1:3000)**
 
-`-N` means SSH does not start a remote command; `-L` maps your laptop's local 3000 port to the VPS's local 3000 port. The password/SSH key remains under your own SSH client. If the local port is in use, select a free local port (for example local 3300) while keeping the remote destination 3000:
-
-```bash
-ssh -N -L 3300:127.0.0.1:3000 ubuntu@YOUR_VPS_IP
-```
-
-In that case open `http://127.0.0.1:3300` on your computer. Be aware that the application validates its HTTP Host and Origin; an alternate browser port can need an explicit reviewed configuration. **Using local port 3000 is the supported default.**
+`-N` means SSH does not start a remote command; `-L` maps your laptop's local 3000 port to the VPS's local 3000 port. The password/SSH key remains under your own SSH client. **Use local port 3000 for the supported default.** If it is already occupied on your computer, stop or reconfigure the conflicting local application first. Although SSH can forward a different local port, this server checks HTTP Host/Origin against its configured origin; simply forwarding local 3300 to remote 3000 **will not reliably work without reviewed server-origin configuration**. Do not disable Host/Origin security checks to bypass this.
 
 ### Option B — PuTTY on Windows
 
