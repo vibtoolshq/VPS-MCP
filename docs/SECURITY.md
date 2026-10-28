@@ -5,18 +5,21 @@ This is a **CI-tested implementation, not yet a hardened public production deplo
 ## Implemented safeguards
 
 - OAuth authorization-code + PKCE, audience/scope validation, refresh token rotation; exact callback URI registration allowlist.
-- Admin verified login, scrypt hashed password, HttpOnly SameSite/Secure cookies, CSRF and login throttling.
+- Admin verified login, asynchronous/bounded scrypt password checks, HttpOnly SameSite/Secure cookies, CSRF, in-memory session cap and login throttling.
 - HTTPS guard for non-loopback listeners, Host/Origin verification, restrictive browser security headers.
 - Default-deny tool allowlist. `vps:write` scope only when explicitly enabled. Each write operation requires one logged-in admin approval, a single-use approval ID and an active broker.
 - Broker uses private Unix-domain socket (not public network) plus secret. It revalidates every action, path/container/repo target, and runs fixed commands with `execFile`, never a shell string.
-- Files are confined to a configured workspace; hidden paths, symlinks and traversal rejected; writes are create-only / no-overwrite / 0600.
+- Files are confined to a configured workspace; hidden paths, symlinks, traversal and group/world-writable directories rejected; writes are create-only / no-overwrite / 0600.
 - Docker host socket is not mounted in or accessed by the HTTP MCP process.
 - Git synchronization is disabled separately by default; only a fixed repository, branch, trusted remote and fast-forward-only pull are supported.
-- Sanitized audit events for authorization, approvals, executions and MCP activity.
+- Sanitized audit events for authorization, approvals, executions and MCP activity. Broker dispatch is refused when critical audit writing fails.
+- New OAuth client registration is closed by default, requires an admin-opened 5-minute window and is capped per window.
+- MCP disable is persisted to a private control file so a restart does not silently re-enable it.
 
 ## Safety-critical caveats
 
 - **Docker group access is effectively root-equivalent.** Running the broker with Docker daemon permissions has serious implications; use a constrained proxy and separate OS identity before production, with only approved containers.
+- **Current 0700 socket-directory / 0600 socket defaults only permit a matching OS identity**; separate-user production deployment requires reviewed group/ACL setup in Phase 05.
 - **Unix socket + shared secret is not an independent admin-approval authority.** A compromised HTTP service holding the secret could bypass its approval UI and directly request allowlisted broker operations. Run the broker with the least capabilities possible; Phase 05 must review isolation, token boundaries and permission separation.
 - A filesystem writable by an untrusted local process can change between path validation and write (TOCTOU). Use a private workspace owned by the broker identity; more robust openat-style protections may be required.
 - `deploy.sync` runs Git inside a trusted repository; Git config/filters and downloaded content can present code execution risks even if client input is fixed. Do not enable it for untrusted repositories. Build/restart are not automatically chained to sync.

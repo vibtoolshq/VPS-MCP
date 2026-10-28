@@ -4,12 +4,18 @@ A lightweight, portable **Node.js + TypeScript MCP server** with an OAuth-secure
 
 > **Phase 04 — implementation & CI verification.** Controlled workspace, Docker and Git deployment tools are added, with write access opt-in and gated by OAuth scope, admin approval and a separate local broker. **Docker/Compose packaging, VPS deployment and a live ChatGPT connection remain incomplete.** Do not expose this development build publicly.
 
+## Security audit after Phase 04
+
+A post-Phase-04 source and GitHub CI audit found and addressed several issues. **New installations require admin-controlled five-minute OAuth client enrollment**, and disabling MCP in the panel now remains disabled across restarts. Password verification no longer blocks Node's HTTP event loop, critical write operations fail closed when the local audit log cannot be persisted, and unsafe workspace directory permissions are rejected.
+
+See [Forensic Audit Report](docs/FORENSIC-AUDIT-2026-10-28.md). **This audit is not a production penetration-test certificate**: live Docker/Git execution, public TLS deployment, ChatGPT integration, and isolated broker permissions still require Phase 05.
+
 ## Included in Phase 03
 
 - Official MCP TypeScript SDK v2; stateless Streamable HTTP at `POST /mcp`.
-- OAuth authorization server discovery, protected-resource metadata, dynamic client registration restricted to a configured exact redirect-URI allowlist, authorization code + PKCE-S256, access token and rotating refresh token.
+- OAuth discovery and PKCE, access and rotating refresh tokens. **Dynamic client registration is closed by default:** after admin login use *Open for 5 min* in the panel before connecting a new MCP client. Exact configured redirect-URI allowlist and five registrations per enrollment window.
 - Small HTML/CSS/vanilla-JS dashboard. Admin password verified with scrypt; HttpOnly SameSite cookie, secure cookie over HTTPS, CSRF-protected controls, login failure throttling.
-- Dashboard overview: MCP enable/disable switch, tool allowlist, system metrics, registered clients, active token counts, recent audit entries and logout.
+- Dashboard overview: persistent MCP enable/disable switch, temporary OAuth client enrollment, tool allowlist, system metrics, client/token counts, recent audit entries and logout.
 - `vps:read` scope gate on every MCP HTTP request; the two original system tools remain read-only. Optional `vps:write` scope and single-use approval gates are introduced in Phase 04.
 - No arbitrary shell execution or Docker daemon socket in the MCP HTTP process. Phase 04 adds limited, explicitly approved broker operations.
 - Config requires a native TLS certificate/key to bind publicly. For an HTTPS tunnel/reverse proxy, bind only to loopback and declare its externally accessible HTTPS origin.
@@ -85,6 +91,7 @@ Useful paths:
 | `/api/session`, `/api/status` | Admin session only |
 | `/api/mcp` | Admin session + CSRF, temporary MCP kill switch |
 | `/api/approval` | Admin session + CSRF, approve/deny one pending operation |
+| `/api/enrollment` | Admin session + CSRF, open/close OAuth client enrollment (5 minutes) |
 | `/mcp` | OAuth bearer token with `vps:read` |
 | `/.well-known/oauth-protected-resource` | OAuth protected resource discovery |
 | `/.well-known/oauth-authorization-server` | OAuth AS metadata |
@@ -101,7 +108,7 @@ In either case, put the **exact redirect URI** from the ChatGPT connection UI in
 
 **Do not paste tokens, passwords, OAuth codes, admin hashes or `.env` contents into ChatGPT conversations or GitHub.** Do not enable arbitrary unauthenticated tunnels.
 
-**Current limits:** runtime session/auth-code caches are memory-only; persisted OAuth clients and refresh-token hashes survive restarts, but existing access tokens do not. The audit log and state files are local disk files. Full live ChatGPT and TLS deployment testing is reserved for release verification.
+**Current limits:** runtime session/auth-code caches are memory-only; persisted OAuth clients and refresh-token hashes survive restarts, but existing access tokens do not. MCP on/off status is persisted to a private control file. The audit log and state files are local disk files. Full live ChatGPT and TLS deployment testing is reserved for release verification.
 
 ## Project tree
 
