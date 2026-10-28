@@ -1,5 +1,4 @@
 import { randomBytes, scryptSync, scrypt, timingSafeEqual } from 'node:crypto';
-import { promisify } from 'node:util';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { AppConfig } from '../shared/config.js';
 
@@ -26,13 +25,16 @@ export function safeEqual(a: string, b: string): boolean {
   const right = Buffer.from(b);
   return left.length === right.length && timingSafeEqual(left, right);
 }
-const scryptAsync=promisify(scrypt);
 async function verifyPasswordNonBlocking(password:string,hash:string):Promise<boolean> {
   try {
     if(password.length>1024)return false;
     const [salt,expected]=hash.split(':');
     if(!salt||!expected)return false;
-    const candidate=await scryptAsync(password,Buffer.from(salt,'hex'),64,{maxmem:64*1024*1024});
+    const candidate=await new Promise<Buffer>((resolve,reject)=>{
+      scrypt(password,Buffer.from(salt,'hex'),64,{maxmem:64*1024*1024},(error,derived)=>{
+        if(error)reject(error);else resolve(derived);
+      });
+    });
     return timingSafeEqual(candidate,Buffer.from(expected,'hex'));
   }catch{return false;}
 }
