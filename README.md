@@ -1,151 +1,101 @@
 # VPS-MCP
 
-**Portable, security-first VPS management MCP server** — a planned Node.js + TypeScript application packaged with Docker Compose, intended to expose carefully scoped VPS management tools to compatible Model Context Protocol (MCP) clients such as ChatGPT.
+**Portable VPS management over Model Context Protocol (MCP)**, built with Node.js + TypeScript. The long-term goal is a reusable server that can run on any Ubuntu VPS using Docker Compose and connect to compatible MCP clients.
 
-> **Status: Structure and documentation only.** No MCP endpoint, authentication, terminal access, Docker control, installer, or deployment is implemented yet. **Do not deploy this repository as a working MCP server.**
+> **Current status — Phase 02: local, read-only MCP core.** This repository has a working *development* Streamable HTTP MCP server. It **does not yet have authentication, external HTTPS, a secure tunnel, Docker controls, shell access, or a production container**. Do not expose its endpoint publicly or route it through a public tunnel.
 
-## Goals
+## Implemented in Phase 02
 
-- Run on Ubuntu VPS instances using Docker Compose; avoid vendor lock-in.
-- Keep the application portable across VPS providers and GitHub repositories.
-- Use the official MCP TypeScript SDK and Streamable HTTP transport.
-- Support secure remote access only after authentication, transport security, and auditing have been implemented and tested.
-- Start with read-only diagnostics, then optionally enable tightly constrained write operations.
-- Provide simple start, stop, upgrade, backup and uninstall procedures when implementation is complete.
+- Official `@modelcontextprotocol/server` v2 and stateless Streamable HTTP (JSON response mode).
+- `GET /health` — local service health.
+- `POST /mcp` — MCP initialize, tool discovery, and tool calls.
+- `system_status` — CPU count, architecture, memory, uptime, load and Node.js version.
+- `disk_usage` — filesystem statistics limited to `/` or `/tmp`; no arbitrary paths.
+- Zod input schemas and SDK validation, read-only tool annotations.
+- Explicit loopback-only binding (`127.0.0.1`), Host/Origin validation and no public listener.
+- Local unit, protocol integration and negative-path tests, plus GitHub Actions checks.
 
-## Proposed architecture
+These tools contain **no shell execution** and **no Docker socket access**. Only the modules above are active; the filesystem, Docker, deployment and security modules are future placeholders.
 
-```text
-ChatGPT / other compatible MCP client
-           |
-    HTTPS + authentication
-           |
-     secure proxy / tunnel
-           |
-  Node.js MCP Streamable HTTP
-           |
-   authorization + audit
-           |
- allowlisted server tools
-     |        |       |
-  system    files   docker/deploy
+## Local development (Node.js 22+)
+
+```bash
+git clone https://github.com/vibtoolshq/VPS-MCP.git
+cd VPS-MCP
+npm install
+npm run check
+npm run dev
 ```
 
-**Client compatibility:** Connecting a custom MCP server, authentication options, and use of write tools depend on the specific ChatGPT account, workspace configuration, and current product support. A reusable server does **not** guarantee unrestricted control from every ChatGPT account.
+In another terminal **on the same machine**:
 
-## Repository layout
+```bash
+curl -fsS http://127.0.0.1:3000/health
+```
+
+The MCP endpoint is `http://127.0.0.1:3000/mcp`; connect with a local compatible MCP client for protocol tests. The integration test uses the official MCP client SDK.
+
+Build and run the compiled application:
+
+```bash
+npm run build
+npm start
+```
+
+### Configuration
+
+`MCP_HOST` is restricted to `127.0.0.1`; non-loopback hosts are rejected at startup. `MCP_PORT` defaults to `3000`, and `MCP_LOG_LEVEL` defaults to `info`. See `.env.example`.
+
+Setting `MCP_HOST=0.0.0.0`, publishing the process through a reverse proxy/tunnel, or otherwise exposing this unauthenticated service is **unsupported and unsafe** in Phase 02.
+
+## Project layout
 
 ```text
 VPS-MCP/
 ├── README.md
-├── LICENSE                  # pending license choice (not added yet)
-├── .gitignore
-├── .dockerignore
+├── .github/workflows/phase02.yml
 ├── .env.example
 ├── package.json
 ├── tsconfig.json
-├── Dockerfile
-├── compose.yaml
-├── config/
-│   └── permissions.example.json
+├── Dockerfile                 # intentionally NOT deployable yet
+├── compose.yaml               # intentionally no services yet
+├── config/permissions.example.json  # design only
 ├── src/
-│   ├── index.ts
+│   ├── index.ts                # development bootstrap
 │   ├── server/
-│   │   ├── mcp.ts
-│   │   └── http.ts
-│   ├── security/
-│   │   ├── authentication.ts
-│   │   ├── authorization.ts
-│   │   └── audit.ts
+│   │   ├── mcp.ts              # live read-only tools
+│   │   └── http.ts             # HTTP mounting, localhost guards and health
 │   ├── tools/
-│   │   ├── system.ts
-│   │   ├── filesystem.ts
-│   │   ├── docker.ts
-│   │   └── deployment.ts
-│   └── shared/
-│       └── config.ts
+│   │   ├── system.ts           # live metrics
+│   │   ├── filesystem.ts       # future
+│   │   ├── docker.ts           # future
+│   │   └── deployment.ts       # future
+│   ├── security/               # future auth/policy/audit
+│   └── shared/config.ts        # validated environment
 ├── tests/
-│   └── README.md
+│   ├── config.test.ts
+│   └── mcp.test.ts
 ├── scripts/
-│   └── README.md
 └── docs/
     ├── ARCHITECTURE.md
     ├── SECURITY.md
     └── ROADMAP.md
 ```
 
-The tracked TypeScript files are **intentional non-executable placeholders** for module boundaries. Runtime configuration is a draft; no services are started by this scaffold.
+## Planned phases
 
-## Planned MCP tools
+1. **Phase 01 — Scaffold:** structure, README, architecture, security and roadmap. Complete.
+2. **Phase 02 — Read-only MCP core:** SDK, HTTP, health, metrics, validation, tests. Implemented; CI status shown in GitHub Actions.
+3. **Phase 03 — Secure remote access:** authentication, HTTPS/tunnel integration, authorization gates, audit and abuse-control tests.
+4. **Phase 04 — Controlled operations:** optional limited filesystem, Docker and deployment operations with an isolated broker, approval model and tests.
+5. **Phase 05 — Portable release:** hardened production Docker image/Compose, installer, lifecycle management, verification on a fresh VPS.
 
-| Module | Planned capabilities | Initial policy |
-| --- | --- | --- |
-| System | CPU, memory, disk, uptime, service status | Read-only |
-| Filesystem | List/read within explicitly allowed directories | Read-only |
-| Docker | Inspect containers and logs | Read-only |
-| Deployment | Inspect repository and deployment status | Read-only |
-| Elevated actions | Restricted file edits, deploy, service/container changes | Disabled until explicit policy and review |
+See [Roadmap](docs/ROADMAP.md) and [Security](docs/SECURITY.md).
 
-No arbitrary shell command execution or unrestricted Docker socket access is included in the baseline.
+## Docker and remote ChatGPT usage
 
-## Security design principles
-
-1. Run the application as a dedicated non-root user, with a read-only container filesystem where possible.
-2. Do **not** publish an unauthenticated MCP endpoint to the internet.
-3. Use authenticated HTTPS or an access-controlled tunnel and validate access to **every** tool.
-4. Deny privileged operations by default, enforce explicit file path and command allowlists, and require approval for destructive actions.
-5. Do not mount `/var/run/docker.sock` into a publicly reachable MCP container. Use an isolated, narrowly scoped broker if Docker write actions are added.
-6. Never commit secrets. Configure runtime credentials outside version control, rotate/revoke them, and redact audit logs.
-7. Test remote connections, authorization failures, prompt-injection resistance, rate limits and safe shutdown before production use.
-
-See [Security](docs/SECURITY.md).
-
-## Getting started (current stage)
-
-Clone to inspect the scaffold:
-
-```bash
-git clone https://github.com/vibtoolshq/VPS-MCP.git
-cd VPS-MCP
-```
-
-**There is no runnable MCP server yet.** The Dockerfile and Compose file intentionally cannot start an application until the implementation phase. The environment example is not a ready-to-use production configuration.
-
-## Development phases
-
-1. **Scaffold** — structure, README, architecture, security policy, roadmap. (This commit)
-2. **Read-only MCP core** — SDK, Streamable HTTP, health checks, strict input validation, tests.
-3. **Remote access hardening** — authentication, authorized HTTPS/tunnel, policy and audit tests.
-4. **Controlled operations** — optional restricted tools with explicit permissions and secure execution broker.
-5. **Portable release** — working Docker image/Compose, installation guides, CI, real VPS verification.
-
-See [Roadmap](docs/ROADMAP.md).
-
-## Operations (future)
-
-Once the runtime is implemented and verified, the intended lifecycle commands will be:
-
-```bash
-docker compose up -d
-docker compose logs -f
-docker compose down
-```
-
-**These commands are documentation of the intended interface, not instructions to run this scaffold today.**
-
-## Costs and portability
-
-The project aims to be self-hosted on an existing VPS without requiring an additional VPS subscription. VPS resources, domains, tunnel service, ChatGPT account eligibility, and API or third-party service charges may still apply.
+**Not yet available.** `Dockerfile` and `compose.yaml` remain intentionally disabled until the final packaging phase. The local Phase 02 HTTP endpoint is not a URL to paste into ChatGPT. MCP client availability, authentication, and write permissions depend on the target product and account; no claim of universal ChatGPT compatibility is made.
 
 ## License
 
-No license has been selected. Until a license file is added, do not assume this repository grants third-party redistribution or modification rights.
-
-## Project status
-
-- [x] Repository structure and planning docs
-- [ ] Working MCP server
-- [ ] Authentication and remote connection
-- [ ] Tool implementation
-- [ ] Docker image and production deployment
-- [ ] Security tests and release
+No license selected yet. Do not assume the public repository grants redistribution or modification permission.
