@@ -4,6 +4,12 @@ A lightweight, portable **Node.js + TypeScript MCP server** with an OAuth-secure
 
 > **Phase 04 — implementation & CI verification.** Controlled workspace, Docker and Git deployment tools are added, with write access opt-in and gated by OAuth scope, admin approval and a separate local broker. **Docker/Compose packaging, VPS deployment and a live ChatGPT connection remain incomplete.** Do not expose this development build publicly.
 
+## Final repository forensic audit
+
+The Phase 01–04 source code was re-audited before Phase 05. OAuth state persistence, refresh rotation, private state-file writes, symlink handling and tool resource-readiness are now covered by targeted tests. The final code CI passed **38/38 tests**, typecheck and build, with no npm high-severity advisories reported.
+
+**Public production deployment is not yet approved.** Docker/Compose remain intentionally non-deployable and broker isolation, HTTPS/OAuth live compatibility, backups and VPS operations must pass Phase 05 verification. See [Final Forensic Audit Report](docs/FINAL-FORENSIC-AUDIT-2026-10-28.md).
+
 ## Advanced access control panel
 
 The compact login-verified panel now includes **tool-by-tool and client-by-client access management**. It is backed by server-enforced, persistent settings—not decorative switches.

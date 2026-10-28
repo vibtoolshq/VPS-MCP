@@ -17,6 +17,10 @@
 - OAuth read scope alone cannot trigger writes; write scope, admin consent, panel approval and broker required.
 - Replay/cross-client/CSRF and unsafe path tests pass.
 
+## Final source audit before Phase 05
+
+Phase 01–04 source code passed the final [forensic audit](FINAL-FORENSIC-AUDIT-2026-10-28.md) and **38 automated tests**. These results do not authorize production deployment. Broker privilege separation, deterministic dependencies, HTTPS/ChatGPT compatibility and actual VPS testing are mandatory Phase 05 release gates.
+
 ## Next — Phase 05
 
 Harden broker permissions with least-privileged OS deployment, review Docker group risks, package a small Docker image, install services and persistent secret storage, provide start/stop/remove, verify behavior on the user's fresh Ubuntu VPS and connect to ChatGPT using HTTPS/OAuth. Existing notes and data must survive upgrades.
