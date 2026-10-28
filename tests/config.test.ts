@@ -11,7 +11,8 @@ test('local-only defaults require admin password verification',()=>{
   assert.equal(cfg.MCP_HOST,'127.0.0.1');
   assert.equal(cfg.origin,'http://127.0.0.1:3000');
   assert.deepEqual(cfg.allowedTools,['system_status','disk_usage']);
-  assert.throws(()=>loadConfig({}),/invalid/i);
+  // New installations deliberately load without an admin hash; AdminSetup blocks all access until setup.
+  assert.equal(loadConfig({}).ADMIN_PASSWORD_HASH,'');
   assert.throws(()=>loadConfig({ADMIN_PASSWORD_HASH,MCP_HOST:'0.0.0.0'}));
   assert.throws(()=>loadConfig({ADMIN_PASSWORD_HASH,MCP_PORT:'70000'}));
   assert.throws(()=>loadConfig({ADMIN_PASSWORD_HASH,MCP_ALLOWED_TOOLS:'docker_exec'}));
