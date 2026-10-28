@@ -72,3 +72,7 @@ The settings draft resides in the private Docker volume at `/data/network-draft.
 ## Follow-up forensic audit
 
 The latest [sidebar and network forensic audit](SIDEBAR-NETWORK-FORENSIC-AUDIT-2026-10-28.md) documents fixes for unsaved form data, stale DNS output, durable audit-before-write, error-status accuracy and host-side exclusive apply locking. The CI now exercises a real private port change and reversal. Real DNS/SSL deployment is still separate.
+
+## Real Cloudflare DNS management
+
+Cloudflare DNS record CRUD is now available inside the same **Domain & SSL** sidebar page, separate from domain/SSL planning and private host-port configuration. See [Cloudflare DNS Management](DNS-MANAGEMENT.md). Live Cloudflare record mutations are administrator-only; domain registration and SSL certificates remain outside this feature.

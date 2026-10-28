@@ -82,7 +82,7 @@ test('DNS CRUD validates same-zone names, record types and delete confirmation',
  assert.equal(added.name,'www.example.org');
  assert.equal((await dns.list()).records.length,1);
  await assert.rejects(dns.update('not-a-record-id',record),/invalid_record_id/);
- await assert.rejects(dns.update(recordId,{...record,type:'AAAA'}),/record_type_cannot_change/);
+ await assert.rejects(dns.update(recordId,{...record,type:'AAAA',content:'2001:db8::1'}),/record_type_cannot_change/);
  const edited=await dns.update(recordId,{...record,content:'203.0.113.99'});
  assert.equal(edited.content,'203.0.113.99');
  await assert.rejects(dns.remove(recordId,'bad.example.org','A'),/dns_record_changed_refresh_required/);

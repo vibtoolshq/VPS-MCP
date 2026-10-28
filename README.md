@@ -103,7 +103,8 @@ Enter the setup token, choose a username and **create your own strong password**
 | Use a small, seven-page sidebar dashboard | ✅ Yes |
 | Turn configured MCP tools ON/OFF | ✅ Yes |
 | Manage OAuth clients and permissions | ✅ Yes, within configured limits |
-| Save a domain/SSL plan and check DNS | ✅ Yes, **planning and checking only** |
+| Manage Cloudflare DNS A/AAAA/CNAME/TXT/MX records | ✅ Implemented via zone-scoped Cloudflare API token; live provider testing pending |
+| Save a domain/SSL plan and check DNS | ✅ Yes; separate from live Cloudflare record management |
 | Change the private Docker host port safely | ✅ Yes, with a separate VPS command |
 | Backup, restore and update | ✅ Scripts provided |
 | Automatically install a domain SSL certificate | ❌ Not implemented |
@@ -295,6 +296,22 @@ ssh -N -L 3000:127.0.0.1:3300 ubuntu@YOUR_VPS_IP
 The script checks the app and attempts to restore the old port if the health check fails. It **does not** make your server public. Actual DNS changes and SSL certificate management still require a separate HTTPS gateway.
 
 Read the [Domain and Port Guide](docs/CONTROL-PANEL-NETWORK.md) for more details.
+
+### Manage live Cloudflare DNS records (new)
+
+If your domain uses **Cloudflare DNS**, you can now manage its records directly from **Control Panel → Domain & SSL → Manage real DNS records**. This is a real Cloudflare integration—not the network-plan draft.
+
+1. Sign in through the **private SSH tunnel** and open **Domain & SSL**.
+2. In your Cloudflare dashboard, select your domain and find its **Zone ID**.
+3. Create a **zone-scoped API token**, limited to this one zone, with **Zone → Zone → Read** and **Zone → DNS → Edit** permissions. Do not use the Global API Key. See [Cloudflare token documentation](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/).
+4. Enter the Zone ID and API token, then click **Connect Cloudflare**. The app verifies zone access before saving.
+5. Click **Load DNS records** to see the live records from Cloudflare.
+6. Use **Create**, **Edit** or **Delete** for supported A, AAAA, CNAME, TXT or MX records. Always review the confirmation before saving a live DNS change.
+7. Use **Disconnect token** to remove the stored credential. It **does not delete DNS records**.
+
+**Important:** The token is stored on the VPS in a mode-0600 private file and never returned to the browser after saving. **Private backups contain this token and must be encrypted before transfer.** Limit Cloudflare token access to one zone, rotate it if exposed and remember that record changes can break websites or email. Adding a DNS record does **not** automatically install SSL, configure an HTTPS reverse proxy or connect ChatGPT.
+
+If your domain's authoritative DNS is at another provider, this Cloudflare module will not manage it. See the [full Cloudflare DNS guide](docs/DNS-MANAGEMENT.md).
 
 ## 8. Everyday commands: start, stop, update
 
