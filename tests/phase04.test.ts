@@ -206,7 +206,7 @@ test('advanced dashboard controls enforce CSRF, global and per-client permission
       assert.equal((await client.listTools()).tools.some(t=>t.name==='system_status'),true);
       const scopeOff=await api('/api/control/client-scope',{clientId:client_id,scope:'vps:read',enabled:false});
       assert.equal(scopeOff.status,200);
-      assert.equal((await client.listTools()).tools.length,0);
+      await assert.rejects(client.listTools(),/Method not found/); // No tools are advertised when scope denies all.
       assert.equal((await api('/api/control/client-scope',{clientId:client_id,scope:'vps:read',enabled:true})).status,200);
       assert.equal((await client.listTools()).tools.some(t=>t.name==='system_status'),true);
       assert.equal((await api('/api/control/client-scope',{clientId:client_id,scope:'vps:write',enabled:false})).status,200);
