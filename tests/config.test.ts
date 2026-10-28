@@ -45,3 +45,11 @@ test('system diagnostics remain read-only',async()=>{
   const disk=await diskUsage('/');
   assert.match(disk.totalBytes,/^\d+$/);
 });
+
+test('private container flag cannot silently allow a publicly-addressable origin',()=>{
+ const hash=ADMIN_PASSWORD_HASH;
+ const privateConfig={ADMIN_PASSWORD_HASH:hash,MCP_PRIVATE_CONTAINER:'true',MCP_HOST:'0.0.0.0',MCP_PUBLIC_URL:'http://127.0.0.1:3000'};
+ assert.equal(loadConfig(privateConfig).origin,'http://127.0.0.1:3000');
+ assert.throws(()=>loadConfig({...privateConfig,MCP_PUBLIC_URL:'https://example.net'}),/Private container mode/);
+ assert.throws(()=>loadConfig({...privateConfig,MCP_HOST:'127.0.0.1'}),/Private container mode/);
+});

@@ -36,3 +36,27 @@ jobs:
           test "$(docker compose exec -T api id -u | tr -d '\r')" = '10001'
           docker compose exec -T api node -e "if(require('fs').existsSync('/var/run/docker.sock'))process.exit(1)"
           test "$(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$(docker compose ps -q api)")" = 'true'
+          # Browser-based account bootstrap is backed by real container persistence.
+          token="$(sed -n 's/^Setup token: //p' "$RUNNER_TEMP/vpsmcp-install.log" | head -1)"
+          test "${#token}" -eq 64
+          curl -fsS -H 'content-type: application/json' -d "{\"token\":\"$token\",\"username\":\"admin\",\"password\":\"StrongNewPassphrase-2026!\",\"confirm\":\"StrongNewPassphrase-2026!\"}" http://127.0.0.1:3000/api/setup | grep -q '"ok":true'
+          curl -fsS http://127.0.0.1:3000/api/setup/status | grep -q '"required":false'
+          docker compose restart api >/dev/null
+          for i in {1..20}; do
+            if curl -fsS http://127.0.0.1:3000/health >/dev/null; then break; fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:3000/api/setup/status | grep -q '"required":false'
+          curl -fsS -H 'content-type: application/json' -d '{"username":"admin","password":"StrongNewPassphrase-2026!"}' http://127.0.0.1:3000/api/login | grep -q '"ok":true'
+          bash scripts/backup.sh "$RUNNER_TEMP/vpsmcp-backup"
+          backup="$(find "$RUNNER_TEMP/vpsmcp-backup" -mindepth 1 -maxdepth 1 -type d | head -1)"
+          bash scripts/check-backup.sh "$backup"
+          tar -tzf "$backup/data.tar.gz" | grep -q 'admin.json'
+          # Missing .env must not silently reset an existing Docker volume.
+          mv .env "$RUNNER_TEMP/vpsmcp-env-saved"
+          if bash scripts/install.sh >"$RUNNER_TEMP/reset-check.log" 2>&1; then
+            echo "Installer mistakenly reset configuration over a populated data volume" >&2
+            exit 1
+          fi
+          mv "$RUNNER_TEMP/vpsmcp-env-saved" .env
+          chmod 600 .env

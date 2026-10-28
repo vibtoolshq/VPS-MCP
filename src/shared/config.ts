@@ -58,7 +58,10 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error('External MCP origin must use HTTPS; HTTP is local-only');
   }
   if (parsed.MCP_HOST === '0.0.0.0' && !publicUrl) throw new Error('Container listener requires MCP_PUBLIC_URL');
-  if(parsed.MCP_PRIVATE_CONTAINER==='true' && parsedOrigin.protocol!=='https:' && parsedOrigin.origin!==`http://127.0.0.1:${parsed.MCP_PORT}`) throw new Error('Private container cannot use a public plaintext origin');
+  if(parsed.MCP_PRIVATE_CONTAINER==='true') {
+    if(parsed.MCP_HOST!=='0.0.0.0' || tls || parsedOrigin.origin!==`http://127.0.0.1:${parsed.MCP_PORT}`)
+      throw new Error('Private container mode requires internal bind and a loopback-only origin; do not use it for public HTTPS');
+  }
   const redirectUris = parsed.OAUTH_ALLOWED_REDIRECT_URIS.split(',').map(v => v.trim()).filter(Boolean);
   for (const uri of redirectUris) {
     const url = new URL(uri);

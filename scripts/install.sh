@@ -11,6 +11,13 @@ if [[ -e .env ]]; then
   echo "Existing admin credentials and data are preserved."
   exit
 fi
+# Refuse to silently create fresh credentials over an existing persistent volume.
+# A lost .env must be restored from backup, not treated as a fresh install.
+if docker volume inspect vps-mcp_mcp-data >/dev/null 2>&1; then
+  echo "Existing VPS-MCP Docker data volume found but .env is missing." >&2
+  echo "Restore the original .env from backup before starting (no data was changed)." >&2
+  exit 1
+fi
 setup_token="$(openssl rand -hex 32)"
 setup_hash="$(printf '%s' "$setup_token" | openssl dgst -sha256 -r | awk '{print $1}')"
 cat > .env <<EOF

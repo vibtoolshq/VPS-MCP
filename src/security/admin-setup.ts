@@ -18,12 +18,16 @@ export class AdminSetup {
  private ready=false;
  constructor(private config:AppConfig){
    const file=config.MCP_ADMIN_STATE_FILE;
+   const marker=file+'.complete';
+   if(!existsSync(file) && existsSync(marker))
+     throw Error('Previously initialized admin state is missing; restore the backup rather than re-running setup');
    if(existsSync(file)){
      const mode=lstatSync(file);
      if(!mode.isFile()||(mode.mode&0o077)!==0)throw Error('Admin state must be a private regular file');
      const saved=savedSchema.parse(JSON.parse(readFileSync(file,'utf8')));
      config.ADMIN_USERNAME=saved.username;
      config.ADMIN_PASSWORD_HASH=saved.passwordHash;
+     if(!existsSync(marker))writeFileSync(marker,'initialized\n',{mode:0o600,flag:'wx'});
      this.ready=true;
    }else if(config.ADMIN_PASSWORD_HASH){
      this.ready=true;
@@ -49,6 +53,9 @@ export class AdminSetup {
      writeFileSync(temp,JSON.stringify(saved),{mode:0o600,flag:'wx'});
      if(existsSync(file))throw Error('Admin account already initialized');
      renameSync(temp,file);
+     // A separate durable marker prevents re-opening first-run setup if the admin
+     // credentials file is lost while an installer token hash remains configured.
+     if(!existsSync(marker))writeFileSync(marker,'initialized\n',{mode:0o600,flag:'wx'});
      this.config.ADMIN_USERNAME=saved.username;
      this.config.ADMIN_PASSWORD_HASH=saved.passwordHash;
      this.ready=true;

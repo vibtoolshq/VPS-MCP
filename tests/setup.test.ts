@@ -52,3 +52,30 @@ test('first installation denies login and MCP until authenticated one-time admin
 test('configuration with no pre-existing admin hash or setup token fails closed',()=>{
  assert.throws(()=>createHttpServer(loadConfig({})),/installer-generated setup token hash/);
 });
+
+test('deleting admin credentials after setup does not reopen the bootstrap endpoint',async()=>{
+ const dir=await mkdtemp(path.join(tmpdir(),'vpsmcp-state-loss-'));
+ const token=randomBytes(32).toString('hex');
+ const cfg=loadConfig({
+   MCP_SETUP_TOKEN_HASH:createHash('sha256').update(token).digest('hex'),
+   MCP_ADMIN_STATE_FILE:path.join(dir,'admin.json'),
+   MCP_CONTROL_FILE:path.join(dir,'control.json'),
+   MCP_STATE_FILE:path.join(dir,'oauth.json'),
+   MCP_POLICY_FILE:path.join(dir,'policy.json'),
+   MCP_AUDIT_FILE:path.join(dir,'audit.jsonl')
+ });
+ const first=createHttpServer(cfg);
+ await new Promise<void>(resolve=>first.server.listen(0,'127.0.0.1',resolve));
+ try{
+  const base='http://127.0.0.1:'+(first.server.address() as AddressInfo).port;
+  const result=await fetch(base+'/api/setup',{
+    method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify({token,username:'admin',password:'another-private-admin-password-2026',
+      confirm:'another-private-admin-password-2026'})
+  });
+  assert.equal(result.status,200);
+ }finally{await first.shutdown();}
+ assert.equal((await stat(cfg.MCP_ADMIN_STATE_FILE+'.complete')).mode&0o777,0o600);
+ await (await import('node:fs/promises')).unlink(cfg.MCP_ADMIN_STATE_FILE);
+ assert.throws(()=>createHttpServer(cfg),/Previously initialized admin state is missing/);
+});
