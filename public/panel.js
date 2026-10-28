@@ -1,117 +1,225 @@
 'use strict';
-const $ = (id) => document.getElementById(id);
-let csrf = '';
-let mcpEnabled = true;
-const escapeText = value => String(value ?? '');
-const put = (id, value) => { $(id).textContent = escapeText(value); };
-const bytes = n => (n / (1024**3)).toFixed(1) + ' GiB';
-async function api(url, options={}) {
-  const response = await fetch(url, {credentials:'same-origin',cache:'no-store',...options});
-  const data = await response.json().catch(()=>({}));
-  if (!response.ok) throw new Error(data.error || 'Request failed');
+// Dashboard-only client: no auth bypass, no direct privileged broker or terminal calls.
+const $ = id => document.getElementById(id);
+const state = { csrf:'', signedIn:false, mcpEnabled:false, enrollmentSeconds:0, endpoint:'', audit:[], refreshing:false, activeAction:false, countdownEnd:0 };
+const put = (id, value) => { $(id).textContent = String(value ?? ''); };
+const asArray = value => Array.isArray(value) ? value : [];
+const formatBytes = value => Number.isFinite(value) && value>=0 ? (value/1073741824).toFixed(1)+' GiB' : '—';
+const validDate = value => { const parsed=new Date(value); return Number.isNaN(parsed.getTime())?'Unknown':parsed.toLocaleString(); };
+function feedback(message='',kind='error',target='notice'){
+  const element=$(target);
+  element.textContent=message;
+  element.classList.toggle('success',kind==='success');
+  element.classList.toggle('error',kind==='error');
+}
+function showLogin(message='',focus=false){
+  state.signedIn=false;state.csrf='';
+  $('dashboard').hidden=true;$('logout').hidden=true;$('login-view').hidden=false;
+  if(message)feedback(message,'error','login-message');
+  if(focus)$('username').focus();
+}
+function showDashboard(){
+  state.signedIn=true;
+  $('login-view').hidden=true;$('dashboard').hidden=false;$('logout').hidden=false;
+}
+function humanError(error){
+  if(error && error.network)return 'Cannot reach the control panel. Check the server or your connection.';
+  if(error && error.status===403)return 'Request denied. Check access permissions or the current session.';
+  if(error && error.status===409)return 'This action expired or was already handled. Refresh and try again.';
+  if(error && error.status===429)return 'Too many requests. Try again later.';
+  return 'The request failed. Refresh the panel and try again.';
+}
+async function api(url,options={}){
+  let response;
+  try {response=await fetch(url,{credentials:'same-origin',cache:'no-store',...options});}
+  catch {throw {network:true};}
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok){
+    if(response.status===401 && !['/api/login','/api/session'].includes(url)){
+      showLogin('Session expired. Sign in again.',true);
+    }
+    throw {status:response.status,code:data.error};
+  }
   return data;
 }
-async function refresh() {
-  try {
-    const data=await api('/api/status');
-    put('connection',data.publicHttps?'● HTTPS secured':'● Local service');
-    put('mcp-state',data.mcpEnabled?'Online':'Disabled');
-    put('mcp-endpoint',data.endpoint);
-    put('tools-count',data.allowedTools.length);
-    put('clients-count',data.oauth.clients);
-    put('token-count',data.oauth.activeTokens);
-    put('cpu',data.system.cpuCount);
-    put('memory',bytes(data.system.totalMemoryBytes - data.system.freeMemoryBytes)+' used');
-    put('uptime',Math.floor(data.system.uptimeSeconds / 3600)+' hours');
-    put('access-mode',data.publicHttps?'HTTPS':'Loopback only');
-    mcpEnabled=data.mcpEnabled;
-    put('enrollment-state',data.enrollmentSeconds>0?'Open · '+data.enrollmentSeconds+'s remaining':'Enrollment closed');
-    put('enrollment-toggle',data.enrollmentSeconds>0?'Close enrollment':'Open for 5 min');
-    put('mcp-toggle',mcpEnabled?'Disable MCP':'Enable MCP');
-    put('mcp-toggle-desc',mcpEnabled?'MCP requests enabled':'MCP requests blocked');
-    $('approval-card').hidden=!data.writesEnabled;
-    put('policy-label',data.writesEnabled?'Approval-gated':'Read-only');
-    const approvalList=$('approval-list');approvalList.replaceChildren();
-    for(const item of data.pendingApprovals||[]) {
-      const line=document.createElement('div');line.className='approval-row';
-      const description=document.createElement('span');description.className='approval-summary';
-      description.textContent=item.summary+' · '+item.clientId;
-      line.append(description);
-      for(const [caption,approve] of [['Approve',true],['Deny',false]]) {
-        const button=document.createElement('button');button.className=approve?'primary small':'ghost small';
-        button.textContent=caption;
-        button.addEventListener('click',async()=>{
-          button.disabled=true;
-          try {
-            await api('/api/approval',{method:'POST',
-              headers:{'content-type':'application/json','x-csrf-token':csrf},
-              body:JSON.stringify({id:item.id,approve})});
-            await refresh();
-          } catch(error){put('notice',error.message);button.disabled=false;}
-        });
-        line.append(button);
-      }
-      approvalList.append(line);
-    }
-    if(!data.pendingApprovals?.length) {
-      const note=document.createElement('p');note.className='sub tight';
-      note.textContent='No pending operations';approvalList.append(note);
-    }
-    const chips=$('tool-list'); chips.replaceChildren();
-    for(const name of data.allowedTools){const child=document.createElement('span'); child.className='chip';child.textContent=name;chips.append(child);}
-    const rows=$('audit-rows'); rows.replaceChildren();
-    for(const event of data.audit) {
-      const tr=document.createElement('tr');
-      for(const v of [new Date(event.at).toLocaleString(),event.action,event.outcome,event.actor]){
-        const td=document.createElement('td');td.textContent=v;td.className=v==='success'?'ok':(v==='denied'||v==='error')?'bad':'';tr.append(td);
-      }
-      rows.append(tr);
-    }
-    if(!data.audit.length){const tr=document.createElement('tr');const td=document.createElement('td');td.colSpan=4;td.textContent='No audit events yet';tr.append(td);rows.append(tr);}
-    put('notice','');
-  } catch(error) {put('notice',error.message);}
-}
-async function init(){
-  const params=new URLSearchParams(location.search);
-  try {
-    const session=await api('/api/session');
-    csrf=session.csrf;
-    $('login-view').hidden=true;$('dashboard').hidden=false;$('logout').hidden=false;
-    if(params.has('next') && /^\/oauth\/authorize\?/.test(params.get('next')||'')) {
-      location.assign(params.get('next'));return;
-    }
-    await refresh();
-  } catch {
-    $('login-view').hidden=false;$('dashboard').hidden=true;$('logout').hidden=true;
+function renderAudit(){
+  const rows=$('audit-rows');
+  const filter=$('audit-search').value.trim().toLowerCase();
+  const matching=state.audit.filter(event=>[event.at,event.action,event.outcome,event.actor].join(' ').toLowerCase().includes(filter));
+  rows.replaceChildren();
+  if(!matching.length){
+    const row=document.createElement('tr');const cell=document.createElement('td');
+    cell.colSpan=4;cell.textContent=filter?'No matching audit events':'No audit events yet';
+    row.append(cell);rows.append(row);return;
+  }
+  for(const event of matching){
+    const row=document.createElement('tr');
+    const values=[validDate(event.at),event.action,event.outcome,event.actor];
+    values.forEach((value,index)=>{
+      const cell=document.createElement('td');cell.textContent=String(value??'');
+      if(index===2)cell.className=value==='success'?'ok':value==='denied'||value==='error'?'bad':'';
+      row.append(cell);
+    });
+    rows.append(row);
   }
 }
+function makeButton(label,style,callback){
+  const element=document.createElement('button');
+  element.type='button';element.className=style;element.textContent=label;
+  element.addEventListener('click',callback);
+  return element;
+}
+function renderApprovals(items,writesEnabled){
+  $('approval-card').hidden=!writesEnabled;
+  const root=$('approval-list');root.replaceChildren();
+  if(!writesEnabled)return;
+  if(!items.length){
+    const empty=document.createElement('p');empty.className='sub tight';
+    empty.textContent='No pending operations';root.append(empty);return;
+  }
+  for(const item of items){
+    const row=document.createElement('div');row.className='approval-row';
+    const description=document.createElement('span');description.className='approval-summary';
+    description.textContent=String(item.summary||'Unknown operation')+' · Client '+String(item.clientId||'unknown');
+    row.append(description);
+    const controls=[];
+    for(const approve of [true,false]){
+      const button=makeButton(approve?'Approve':'Deny',approve?'primary small':'ghost small',async()=>{
+        if(state.activeAction)return;
+        const prompt=(approve?'Approve this exact operation?':'Deny this operation?')+'\n\n'+description.textContent;
+        if(!window.confirm(prompt))return;
+        state.activeAction=true;controls.forEach(b=>b.disabled=true);
+        try{
+          await api('/api/approval',{method:'POST',
+            headers:{'content-type':'application/json','x-csrf-token':state.csrf},
+            body:JSON.stringify({id:item.id,approve})});
+          await refresh();
+          if(state.signedIn)feedback(approve?'Operation approved. The client may execute it once.':'Operation denied.','success');
+        }catch(error){
+          if(state.signedIn){feedback(humanError(error));await refresh();}
+        }finally{state.activeAction=false;controls.forEach(b=>b.disabled=false);}
+      });
+      controls.push(button);row.append(button);
+    }
+    root.append(row);
+  }
+}
+function updateEnrollmentLabel(){
+  const left=Math.max(0,Math.ceil((state.countdownEnd-Date.now())/1000));
+  state.enrollmentSeconds=left;
+  put('enrollment-state',left>0?'Open · '+left+'s remaining':'Enrollment closed');
+  put('enrollment-toggle',left>0?'Close enrollment':'Open for 5 min');
+  $('enrollment-toggle').setAttribute('aria-pressed',String(left>0));
+}
+function render(data){
+  state.mcpEnabled=data.mcpEnabled===true;
+  state.endpoint=typeof data.endpoint==='string'?data.endpoint:'';
+  put('connection',data.publicHttps?'● Configured HTTPS':'● Loopback mode');
+  put('mcp-state',state.mcpEnabled?'Enabled':'Disabled');
+  $('mcp-state').className='metric '+(state.mcpEnabled?'status-ok':'status-error');
+  put('mcp-endpoint',state.endpoint||'Endpoint unavailable');
+  put('tools-count',asArray(data.allowedTools).length);
+  put('clients-count',Number.isFinite(data.oauth?.clients)?data.oauth.clients:'—');
+  put('token-count',Number.isFinite(data.oauth?.activeTokens)?data.oauth.activeTokens:'—');
+  put('cpu',Number.isFinite(data.system?.cpuCount)?data.system.cpuCount:'—');
+  put('memory',data.system?formatBytes(data.system.totalMemoryBytes-data.system.freeMemoryBytes):'—');
+  put('uptime',Number.isFinite(data.system?.uptimeSeconds)?Math.floor(data.system.uptimeSeconds/3600)+' hours':'—');
+  put('access-mode',data.publicHttps?'HTTPS configured':'Local loopback');
+  $('copy-endpoint').disabled=!state.endpoint;
+  put('mcp-toggle',state.mcpEnabled?'Disable MCP':'Enable MCP');
+  $('mcp-toggle').setAttribute('aria-pressed',String(state.mcpEnabled));
+  put('mcp-toggle-desc',state.mcpEnabled?'MCP requests are enabled':'MCP requests are blocked');
+  put('policy-label',data.writesEnabled?'Approval-gated writes':'Read-only');
+  state.countdownEnd=Date.now()+Math.max(0,Number(data.enrollmentSeconds)||0)*1000;
+  updateEnrollmentLabel();
+  const toolList=$('tool-list');toolList.replaceChildren();
+  for(const name of asArray(data.allowedTools)){
+    const item=document.createElement('span');item.className='chip';item.textContent=String(name);toolList.append(item);
+  }
+  if(!toolList.childNodes.length){
+    const item=document.createElement('span');item.className='sub';item.textContent='No tools enabled';toolList.append(item);
+  }
+  renderApprovals(asArray(data.pendingApprovals),data.writesEnabled===true);
+  state.audit=asArray(data.audit);
+  renderAudit();
+}
+async function refresh(){
+  if(state.refreshing||!state.signedIn)return;
+  state.refreshing=true;$('refresh').disabled=true;put('refresh','↻ Refreshing');
+  try{render(await api('/api/status'));}
+  catch(error){if(state.signedIn)feedback(humanError(error));}
+  finally{state.refreshing=false;$('refresh').disabled=false;put('refresh','↻ Refresh');}
+}
+async function init(){
+  try{
+    const session=await api('/api/session');
+    if(typeof session.csrf!=='string'||!session.csrf)throw {status:401};
+    state.csrf=session.csrf;showDashboard();
+    const next=new URLSearchParams(location.search).get('next')||'';
+    if(/^\/oauth\/authorize\?[^#]*$/.test(next)){
+      location.assign(next);return;
+    }
+    await refresh();
+  }catch(error){
+    showLogin(error?.status===401?'':humanError(error),false);
+  }
+}
+async function runAction(button,request,success){
+  if(state.activeAction||!state.signedIn)return;
+  state.activeAction=true;button.disabled=true;
+  try{
+    await request();
+    await refresh();
+    if(state.signedIn)feedback(success,'success');
+  }catch(error){
+    if(state.signedIn)feedback(humanError(error));
+  }finally{state.activeAction=false;button.disabled=false;}
+}
 $('login-form').addEventListener('submit',async event=>{
-  event.preventDefault();$('login-button').disabled=true;put('login-message','');
-  try {
-    const result=await api('/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username:$('username').value,password:$('password').value})});
-    csrf=result.csrf;$('password').value='';
+  event.preventDefault();const button=$('login-button');button.disabled=true;
+  feedback('Verifying credentials…','success','login-message');
+  try{
+    await api('/api/login',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({username:$('username').value.trim(),password:$('password').value})});
+    $('password').value='';
+    feedback('','success','login-message');
     await init();
-  } catch {put('login-message','Login unsuccessful. Verify your credentials.');}
-  finally {$('login-button').disabled=false;}
+  }catch(error){
+    feedback(error?.network?humanError(error):error?.status===429?'Too many attempts. Try again later.':'Login unsuccessful. Check your credentials.','error','login-message');
+  }finally{button.disabled=false;}
 });
 $('logout').addEventListener('click',async()=>{
-  await api('/api/logout',{method:'POST',headers:{'x-csrf-token':csrf}}).catch(()=>undefined);
-  location.assign('/');
-});
-$('refresh').addEventListener('click',refresh);
-$('enrollment-toggle').addEventListener('click',async()=>{
-  const button=$('enrollment-toggle');button.disabled=true;
+  const button=$('logout');button.disabled=true;
   try{
-    const active=$('enrollment-state').textContent.startsWith('Open');
-    await api('/api/enrollment',{method:'POST',headers:{'content-type':'application/json','x-csrf-token':csrf},body:JSON.stringify({enabled:!active})});
-    await refresh();
-  }catch(error){put('notice',error.message);}
+    await api('/api/logout',{method:'POST',headers:{'x-csrf-token':state.csrf}});
+    showLogin('Signed out successfully.',true);
+    feedback('Signed out successfully.','success','login-message');
+    history.replaceState(null,'','/');
+  }catch(error){if(state.signedIn)feedback('Could not complete sign out. '+humanError(error));}
   finally{button.disabled=false;}
 });
-$('mcp-toggle').addEventListener('click',async()=>{
-  $('mcp-toggle').disabled=true;
-  try {await api('/api/mcp',{method:'POST',headers:{'content-type':'application/json','x-csrf-token':csrf},body:JSON.stringify({enabled:!mcpEnabled})});await refresh();}
-  catch(error){put('notice',error.message);}
-  finally{$('mcp-toggle').disabled=false;}
+$('refresh').addEventListener('click',()=>{void refresh();});
+$('audit-search').addEventListener('input',renderAudit);
+$('copy-endpoint').addEventListener('click',async()=>{
+  if(!state.endpoint)return;
+  try{
+    await navigator.clipboard.writeText(state.endpoint);
+    feedback('Endpoint copied. Keep access credentials private.','success');
+  }catch{feedback('Clipboard unavailable. Select the endpoint text to copy it.');}
 });
+$('enrollment-toggle').addEventListener('click',async()=>{
+  const active=state.enrollmentSeconds>0;
+  if(!active&&!window.confirm('Open OAuth client registration for 5 minutes? Only add clients you trust.'))return;
+  await runAction($('enrollment-toggle'),()=>api('/api/enrollment',{method:'POST',
+    headers:{'content-type':'application/json','x-csrf-token':state.csrf},
+    body:JSON.stringify({enabled:!active})}),active?'Client enrollment closed.':'Enrollment opened temporarily.');
+});
+$('mcp-toggle').addEventListener('click',async()=>{
+  const enabled=!state.mcpEnabled;
+  if(!enabled&&!window.confirm('Disable MCP requests? Connected clients will lose access until you re-enable it.'))return;
+  await runAction($('mcp-toggle'),()=>api('/api/mcp',{method:'POST',
+    headers:{'content-type':'application/json','x-csrf-token':state.csrf},
+    body:JSON.stringify({enabled})}),enabled?'MCP requests enabled.':'MCP requests disabled.');
+});
+setInterval(()=>{if(state.signedIn && state.enrollmentSeconds>0)updateEnrollmentLabel();},1000);
 void init();
